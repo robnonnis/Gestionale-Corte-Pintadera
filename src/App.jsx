@@ -1,37 +1,17 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useDb } from './useDb'
 import { css } from './styles'
+import logoImg from './assets/logo.jpg'
 import {
   MESI, GIORNI_BREVI, GIORNI_SETT, today, diffDays,
   fmt, fmtFull, fmtDate, monthKey,
   getUrgenza, CAT_ICON, BOLL_TIPI, PERIODO_COLOR,
-  piattaformaLabel, piattaformaBadge
+  piattaformaLabel, piattaformaBadge,
+  buildOccupancy, occupancyLabel, occupancyColorClass
 } from './utils'
 
 // ── Logo ─────────────────────────────────────────────────────────────────
-const Logo = () => (
-  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="48" fill="#2C1810"/>
-    <circle cx="50" cy="50" r="44" fill="none" stroke="#C9A84C" strokeWidth="1.5"/>
-    <g stroke="#C9A84C" fill="#C9A84C">
-      <polygon points="50,28 62,50 50,72 38,50" fill="none" strokeWidth="2"/>
-      <line x1="50" y1="34" x2="50" y2="66" strokeWidth="1.5"/>
-      <line x1="36" y1="50" x2="64" y2="50" strokeWidth="1.5"/>
-      <circle cx="50" cy="28" r="2.5"/><circle cx="62" cy="50" r="2.5"/>
-      <circle cx="50" cy="72" r="2.5"/><circle cx="38" cy="50" r="2.5"/>
-      <circle cx="50" cy="50" r="5" fill="none" strokeWidth="1.5"/>
-      <circle cx="50" cy="50" r="2"/>
-    </g>
-    <path id="at" d="M 18,50 A 32,32 0 0,1 82,50" fill="none"/>
-    <path id="ab" d="M 82,50 A 32,32 0 0,1 18,50" fill="none"/>
-    <text fontFamily="serif" fontSize="7.5" fill="#C9A84C" letterSpacing="2">
-      <textPath href="#at" startOffset="8%">CORTE PINTADERA</textPath>
-    </text>
-    <text fontFamily="serif" fontSize="6.5" fill="#C9A84C" letterSpacing="1.5">
-      <textPath href="#ab" startOffset="18%">· UTA · SARDEGNA ·</textPath>
-    </text>
-  </svg>
-)
+const Logo = () => <img src={logoImg} alt="Corte Pintadera" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
 
 // ── Modal ─────────────────────────────────────────────────────────────────
 const Modal = ({ open, onClose, title, children, wide }) => {
@@ -102,10 +82,15 @@ export default function App() {
   const giornoNum = now.getDate()
   const giornoLbl = GIORNI_SETT[now.getDay()].slice(0,3).toUpperCase() + ' · ' + now.toLocaleDateString('it-IT',{month:'short',year:'2-digit'}).toUpperCase()
 
+  // ── Occupazione unificata (prenotazioni manuali + eventi iCal) ────────
+  const occ = buildOccupancy(db.prenotazioni, db.prenotazioniIcal)
+
   // ── KPI ─────────────────────────────────────────────────────────────
   const mk = monthKey(now)
   const finMese = db.finanze.filter(f=>f.data.slice(0,7)===mk)
-  const entrMese = finMese.filter(f=>f.tipo==='entrata').reduce((s,f)=>s+Number(f.importo),0)
+  // Incassi: dalla tabella prenotazioni (somma totale), non dalle finanze —
+  // le finanze non vengono compilate per ogni prenotazione importata da iCal.
+  const entrMese = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk).reduce((s,p)=>s+Number(p.totale||0),0)
   const uscMese  = finMese.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
   const todayStr = today()
   const prenFuture = db.prenotazioni.filter(p=>p.checkout>=todayStr).sort((a,b)=>a.checkin.localeCompare(b.checkin))
@@ -113,12 +98,12 @@ export default function App() {
   const prenOggiCO = db.prenotazioni.filter(p=>p.checkout===todayStr)
   const prenInCorso = db.prenotazioni.filter(p=>p.checkin<=todayStr&&p.checkout>todayStr)
 
-  // Occupazione mese corrente
+  // Occupazione mese corrente (manuali + iCal)
   const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()
   let occupiedDays = 0
   for (let d=1; d<=daysInMonth; d++) {
     const ds = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(d).padStart(2,'0')
-    if (db.prenotazioni.some(p=>p.checkin<=ds&&p.checkout>ds)) occupiedDays++
+    if (occ.dayMap[ds]) occupiedDays++
   }
   const occPerc = Math.round(occupiedDays/daysInMonth*100)
 
@@ -324,26 +309,21 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     const y=calMonth.getFullYear(), m=calMonth.getMonth()
     const first=(new Date(y,m,1).getDay()+6)%7
     const dim=new Date(y,m+1,0).getDate()
-    const bookedMap={}
-    db.prenotazioni.forEach(p=>{
-      let d=new Date(p.checkin); const end=new Date(p.checkout)
-      while(d<end){const k=d.toISOString().slice(0,10);bookedMap[k]=p;d=new Date(d.getTime()+86400000)}
-    })
     const days=[]
     GIORNI_BREVI.forEach((g,i)=>days.push(<div key={'h'+i} className="cdn">{g}</div>))
     for(let i=0;i<first;i++) days.push(<div key={'e'+i}/>)
     for(let day=1;day<=dim;day++){
       const ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0')
-      const bk=bookedMap[ds]; const isToday=ds===todayStr
+      const it=occ.dayMap[ds]; const isToday=ds===todayStr
       let cls='cd'
       if(isToday) cls+=' today'
-      else if(bk){
-        cls+=' booked'
-        if(bk.checkin===ds) cls=' cd checkin'
-        else if(bk.checkout===new Date(new Date(ds).getTime()+86400000).toISOString().slice(0,10)) cls=' cd checkout'
-        else cls+=' booked-mid'
+      else if(it){
+        cls+=' occ-'+occupancyColorClass(it)
+        if(it.checkin===ds) cls+=' occ-start'
+        const dsNext=new Date(new Date(ds).getTime()+86400000).toISOString().slice(0,10)
+        if(it.checkout===dsNext) cls+=' occ-end'
       }
-      days.push(<div key={day} className={cls}>{day}</div>)
+      days.push(<div key={day} className={cls} title={it?occupancyLabel(it):''}>{day}</div>)
     }
     return <div className="cal-grid">{days}</div>
   }
@@ -514,10 +494,43 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               <button className="cal-nav" onClick={()=>setCalMonth(new Date(calMonth.getFullYear(),calMonth.getMonth()+1,1))}>›</button>
             </div>
             <CalGrid/>
-            <div style={{display:'flex',gap:8,marginTop:9,fontSize:10,color:'var(--grigio)'}}>
-              <span>🟩 In corso</span><span style={{color:'var(--terracotta)'}}>🟥 Check-in</span><span style={{color:'var(--rosso)'}}>🟥 Check-out</span>
+            <div style={{display:'flex',gap:8,marginTop:9,fontSize:10,color:'var(--grigio)',flexWrap:'wrap'}}>
+              <span style={{color:'#C02228'}}>🔴 Airbnb</span>
+              <span style={{color:'#003B95'}}>🔵 Booking</span>
+              <span style={{color:'var(--verde)'}}>🟢 Diretto</span>
+              <span>▦ Blocco/Ferie</span>
             </div>
           </div>
+
+          {/* ── Dettaglio prenotazioni (mese visualizzato) ─────────── */}
+          {(() => {
+            const cy=calMonth.getFullYear(), cm=calMonth.getMonth()
+            const monthStart=new Date(cy,cm,1), monthEnd=new Date(cy,cm+1,1)
+            const detailItems=occ.items.filter(it=>new Date(it.checkin)<monthEnd && new Date(it.checkout)>monthStart)
+            return <>
+              <div className="stitle">Dettaglio prenotazioni</div>
+              <div className="card">
+                {detailItems.length===0
+                  ? <div className="empty" style={{padding:12}}><div className="emi">📅</div><p>Nessuna occupazione questo mese</p></div>
+                  : detailItems.map(it=>(
+                    <div key={it.id} className="ir">
+                      <div className={`iico ${it.tipo==='blocco'?'o':it.piattaforma==='airbnb'?'r':it.piattaforma==='booking'?'c':'v'}`}>{it.tipo==='blocco'?'🚫':'🏠'}</div>
+                      <div className="ibody">
+                        <div className="iname">{occupancyLabel(it)}</div>
+                        <div className="imeta">{fmtDate(it.checkin)} → {fmtDate(it.checkout)}</div>
+                      </div>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}}>
+                        <span className={`badge ${piattaformaBadge(it.piattaforma)}`}>{piattaformaLabel(it.piattaforma)}</span>
+                        {it.totale>0
+                          ? <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:13,fontWeight:600,color:'var(--verde)'}}>{fmtFull(it.totale)}</span>
+                          : <span style={{fontSize:9,color:'var(--grigio)'}}>—</span>}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </>
+          })()}
+
           <div style={{display:'flex',gap:6,marginBottom:9}}>
             <button className="btn bs bsm" style={{flex:1}} onClick={importIcal}>🔄 Importa iCal</button>
             <button className="btn bp bsm" onClick={()=>setModal('modal-prenotazione')}>+ Prenotazione</button>

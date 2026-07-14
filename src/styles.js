@@ -14,8 +14,8 @@ body{font-family:'Inter',sans-serif;background:var(--sabbia);color:var(--pietra)
 /* Header */
 .hdr{background:var(--pietra);padding:11px 16px 10px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px var(--ombra-f)}
 .hdr-inner{display:flex;justify-content:space-between;align-items:center}
-.hdr-logo{width:40px;height:40px;border-radius:50%;background:var(--sabbia);display:flex;align-items:center;justify-content:center;border:2px solid rgba(242,232,217,.2);flex-shrink:0}
-.hdr-logo svg{width:34px;height:34px}
+.hdr-logo{width:40px;height:40px;border-radius:50%;background:var(--sabbia);display:flex;align-items:center;justify-content:center;border:2px solid rgba(242,232,217,.2);flex-shrink:0;overflow:hidden}
+.hdr-logo svg,.hdr-logo img{width:100%;height:100%}
 .hdr-title{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:var(--sabbia);line-height:1.15}
 .hdr-sub{font-size:9px;color:var(--sabbia-scura);opacity:.7;text-transform:uppercase;letter-spacing:.08em;margin-top:1px}
 .hdr-day{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:var(--sabbia);line-height:1;text-align:right}
@@ -145,10 +145,12 @@ body{font-family:'Inter',sans-serif;background:var(--sabbia);color:var(--pietra)
 .cd{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:10px;
   border-radius:4px;cursor:pointer;position:relative;color:var(--pietra)}
 .cd.today{background:var(--terracotta);color:white;font-weight:700}
-.cd.booked{background:rgba(74,103,65,.15);color:var(--verde);font-weight:600}
-.cd.checkin{background:var(--verde);color:white;font-weight:700;border-radius:4px 0 0 4px}
-.cd.checkout{background:rgba(192,57,43,.2);color:var(--rosso);font-weight:600;border-radius:0 4px 4px 0}
-.cd.booked-mid{border-radius:0}
+.cd.occ-airbnb{background:rgba(255,90,95,.2);color:#C02228;font-weight:600}
+.cd.occ-booking{background:rgba(0,59,149,.16);color:#003B95;font-weight:600}
+.cd.occ-diretto{background:rgba(74,103,65,.15);color:var(--verde);font-weight:600}
+.cd.occ-blocco{background:repeating-linear-gradient(45deg,rgba(139,115,85,.2),rgba(139,115,85,.2) 4px,transparent 4px,transparent 8px);color:var(--grigio);font-weight:600}
+.cd.occ-start{border-radius:4px 0 0 4px;box-shadow:inset 2px 0 0 currentColor}
+.cd.occ-end{border-radius:0 4px 4px 0;box-shadow:inset -2px 0 0 currentColor}
 
 /* Booking card */
 .bkc{background:white;border-radius:var(--rsm);padding:10px 12px;margin-bottom:7px;

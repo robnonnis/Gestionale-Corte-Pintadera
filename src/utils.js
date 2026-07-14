@@ -41,3 +41,51 @@ export const PERIODO_COLOR = {
 
 export const piattaformaLabel = p => p==='airbnb'?'Airbnb':p==='booking'?'Booking':'Diretto'
 export const piattaformaBadge = p => p==='airbnb'?'badge-airbnb':p==='booking'?'badge-booking':'badge-diretto'
+
+// ── Occupazione calendario (prenotazioni manuali + eventi iCal) ──────────
+// Unisce le prenotazioni inserite a mano con gli eventi importati da
+// Airbnb/Booking (tabella prenotazioni_ical), evitando i duplicati: se un
+// evento iCal coincide (per ical_uid o per date+piattaforma) con una riga
+// di `prenotazioni`, vince quella manuale perché ha nome e importo.
+export function buildOccupancy(prenotazioni, prenotazioniIcal) {
+  const matchedUids = new Set(prenotazioni.filter(p=>p.ical_uid).map(p=>p.ical_uid))
+  const icalOnly = (prenotazioniIcal||[]).filter(ev => {
+    if (matchedUids.has(ev.uid)) return false
+    const dup = prenotazioni.some(p=>p.checkin===ev.data_inizio && p.checkout===ev.data_fine && p.piattaforma===ev.source)
+    return !dup
+  })
+  const items = [
+    ...prenotazioni.map(p => ({
+      id:'m-'+p.id, kind:'manuale', checkin:p.checkin, checkout:p.checkout,
+      piattaforma:p.piattaforma||'diretto', nome:p.nome, totale:p.totale, tipo:'prenotazione', ref:p
+    })),
+    ...icalOnly.map(ev => ({
+      id:'i-'+ev.uid, kind:'ical', checkin:ev.data_inizio, checkout:ev.data_fine,
+      piattaforma:ev.source, nome:null, totale:null, tipo:ev.tipo, ref:ev
+    })),
+  ].sort((a,b)=>a.checkin.localeCompare(b.checkin))
+
+  const dayMap = {}
+  items.forEach(it => {
+    let d = new Date(it.checkin); const end = new Date(it.checkout)
+    while (d < end) {
+      const k = d.toISOString().slice(0,10)
+      if (!dayMap[k] || it.kind==='manuale') dayMap[k] = it
+      d = new Date(d.getTime()+86400000)
+    }
+  })
+  return { items, dayMap }
+}
+
+export const occupancyLabel = it => {
+  if (it.kind==='manuale') return it.nome
+  if (it.tipo==='blocco') return 'Blocco / Ferie'
+  return it.piattaforma==='booking' ? 'Ospite Booking' : 'Ospite Airbnb'
+}
+
+export const occupancyColorClass = it => {
+  if (it.tipo==='blocco') return 'blocco'
+  if (it.piattaforma==='airbnb') return 'airbnb'
+  if (it.piattaforma==='booking') return 'booking'
+  return 'diretto'
+}

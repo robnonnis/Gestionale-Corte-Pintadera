@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 
 export function useDb() {
   const [data, setData] = useState({
-    prenotazioni: [], ospiti: [], finanze: [], bollette: [],
+    prenotazioni: [], prenotazioniIcal: [], ospiti: [], finanze: [], bollette: [],
     scadenze: [], prezzi: [], regole: [], checklist: [],
     manutenzioni: [], inventario: [], documenti: [], impostazioni: {}
   })
@@ -24,8 +24,9 @@ export function useDb() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [pren, osp, fin, boll, scad, prz, reg, chk, man, inv, doc, imp] = await Promise.all([
+      const [pren, prenIcal, osp, fin, boll, scad, prz, reg, chk, man, inv, doc, imp] = await Promise.all([
         supabase.from('prenotazioni').select('*').order('checkin'),
+        supabase.from('prenotazioni_ical').select('*').order('data_inizio'),
         supabase.from('ospiti').select('*').order('nome'),
         supabase.from('finanze').select('*').order('data', { ascending: false }),
         supabase.from('bollette').select('*').order('scadenza', { ascending: false }),
@@ -41,7 +42,7 @@ export function useDb() {
       const impostazioni = {}
       ;(imp.data || []).forEach(i => { impostazioni[i.chiave] = i.valore })
       const next = {
-        prenotazioni: pren.data || [], ospiti: osp.data || [],
+        prenotazioni: pren.data || [], prenotazioniIcal: prenIcal.data || [], ospiti: osp.data || [],
         finanze: fin.data || [], bollette: boll.data || [],
         scadenze: scad.data || [], prezzi: prz.data || [],
         regole: reg.data || [], checklist: chk.data || [],
@@ -52,7 +53,7 @@ export function useDb() {
       Object.entries(next).forEach(([k,v]) => local.save(k, v))
     } catch (e) {
       console.warn('Offline, uso cache', e)
-      const keys = ['prenotazioni','ospiti','finanze','bollette','scadenze','prezzi','regole','checklist','manutenzioni','inventario','documenti','impostazioni']
+      const keys = ['prenotazioni','prenotazioniIcal','ospiti','finanze','bollette','scadenze','prezzi','regole','checklist','manutenzioni','inventario','documenti','impostazioni']
       const cached = {}
       keys.forEach(k => { cached[k] = local.load(k, k === 'impostazioni' ? {} : []) })
       setData(cached)
