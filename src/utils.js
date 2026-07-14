@@ -61,7 +61,8 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal) {
     })),
     ...icalOnly.map(ev => ({
       id:'i-'+ev.uid, kind:'ical', checkin:ev.data_inizio, checkout:ev.data_fine,
-      piattaforma:ev.source, nome:null, totale:null, tipo:ev.tipo, ref:ev
+      piattaforma:ev.source, nome:null, totale:null,
+      tipo: ev.chiusura_manuale ? 'blocco' : ev.tipo, ref:ev
     })),
   ].sort((a,b)=>a.checkin.localeCompare(b.checkin))
 
@@ -88,4 +89,26 @@ export const occupancyColorClass = it => {
   if (it.piattaforma==='airbnb') return 'airbnb'
   if (it.piattaforma==='booking') return 'booking'
   return 'diretto'
+}
+
+// ── Pricing: taglio combinato (commissione OTA + cedolare) e prezzo minimo ─
+// Dal 13/10/2026 Airbnb allinea le commissioni a Booking: le percentuali sono
+// lette da `impostazioni` (taglio_diretto_pct, taglio_booking_pct,
+// taglio_airbnb_prima_pct, taglio_airbnb_dopo_pct, data_cambio_airbnb,
+// utile_min_giorno) cosi' da poterle correggere senza toccare il codice.
+export function taglioPiattaforma(piattaforma, dataRif, impostazioni) {
+  const pct = k => parseFloat(impostazioni?.[k] ?? '0') || 0
+  if (piattaforma === 'booking') return pct('taglio_booking_pct')
+  if (piattaforma === 'airbnb') {
+    const cambio = impostazioni?.data_cambio_airbnb
+    return (cambio && dataRif >= cambio) ? pct('taglio_airbnb_dopo_pct') : pct('taglio_airbnb_prima_pct')
+  }
+  return pct('taglio_diretto_pct')
+}
+
+export function prezzoMinimo(piattaforma, dataRif, impostazioni) {
+  const taglio = taglioPiattaforma(piattaforma, dataRif, impostazioni)
+  const utileMin = parseFloat(impostazioni?.utile_min_giorno ?? '50') || 0
+  if (taglio >= 100) return Infinity
+  return utileMin / (1 - taglio/100)
 }

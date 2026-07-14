@@ -210,6 +210,22 @@ create table if not exists impostazioni (
 );
 
 -- ============================================================
+-- PRENOTAZIONI_ICAL — cache eventi importati da Airbnb/Booking
+-- (popolata dalla Edge Function sync-ical ogni 2h; le prenotazioni
+-- manuali in `prenotazioni` hanno sempre la precedenza in app)
+-- ============================================================
+create table if not exists prenotazioni_ical (
+  uid               text primary key,
+  source            text not null,       -- airbnb | booking
+  data_inizio       date not null,
+  data_fine         date not null,       -- esclusa (standard iCal)
+  summary           text,
+  tipo              text not null default 'prenotazione',  -- prenotazione | blocco
+  aggiornato_il     timestamptz default now(),
+  chiusura_manuale  boolean default false  -- override manuale dall'app (mai toccato dal sync)
+);
+
+-- ============================================================
 -- DATI DEFAULT
 -- ============================================================
 
@@ -225,7 +241,15 @@ insert into impostazioni (chiave, valore) values
   ('wifi_nome', 'FASTWEB-E3XZSC'),
   ('wifi_password', 'C7RAEXHAUG'),
   ('host_nome', 'Roberta e Alessandro'),
-  ('host_telefono', '')
+  ('host_telefono', ''),
+  -- Regole di pricing: taglio combinato (commissione OTA + cedolare secca) per
+  -- piattaforma. Dal 13/10/2026 Airbnb allinea le commissioni a Booking.
+  ('taglio_diretto_pct', '21'),
+  ('taglio_booking_pct', '40'),
+  ('taglio_airbnb_prima_pct', '24'),
+  ('taglio_airbnb_dopo_pct', '40'),
+  ('data_cambio_airbnb', '2026-10-13'),
+  ('utile_min_giorno', '50')
 on conflict (chiave) do nothing;
 
 -- Prezzi stagionali Sardegna
@@ -342,6 +366,18 @@ do $$ declare t text; begin
       end $inner$
     ', t, 'anon_all', t, t);
   end loop;
+end $$;
+
+-- prenotazioni_ical: popolata dalla Edge Function (service role), il client
+-- anon puo' solo leggere e aggiornare il flag chiusura_manuale.
+alter table prenotazioni_ical enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename='prenotazioni_ical' and policyname='lettura pubblica') then
+    create policy "lettura pubblica" on prenotazioni_ical for select using (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename='prenotazioni_ical' and policyname='anon_update_chiusura') then
+    create policy "anon_update_chiusura" on prenotazioni_ical for update using (true) with check (true);
+  end if;
 end $$;
 
 -- ============================================================

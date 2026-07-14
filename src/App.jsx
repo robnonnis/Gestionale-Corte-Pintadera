@@ -7,7 +7,8 @@ import {
   fmt, fmtFull, fmtDate, monthKey,
   getUrgenza, CAT_ICON, BOLL_TIPI, PERIODO_COLOR,
   piattaformaLabel, piattaformaBadge,
-  buildOccupancy, occupancyLabel, occupancyColorClass
+  buildOccupancy, occupancyLabel, occupancyColorClass,
+  taglioPiattaforma, prezzoMinimo
 } from './utils'
 
 // ── Logo ─────────────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'' }
+  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
   const emptyMan = { titolo:'', tipo:'ordinaria', data:today(), costo:'', fornitore:'', telefono:'', stato:'completato', prossima_data:'', note:'' }
@@ -94,6 +95,8 @@ export default function App() {
   const uscMese  = finMese.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
   const todayStr = today()
   const prenFuture = db.prenotazioni.filter(p=>p.checkout>=todayStr).sort((a,b)=>a.checkin.localeCompare(b.checkin))
+  // Prenotazioni + eventi iCal non abbinati, in un unico ordine cronologico
+  const occFuture = occ.items.filter(it=>it.checkout>=todayStr)
   const prenOggiCI = db.prenotazioni.filter(p=>p.checkin===todayStr)
   const prenOggiCO = db.prenotazioni.filter(p=>p.checkout===todayStr)
   const prenInCorso = db.prenotazioni.filter(p=>p.checkin<=todayStr&&p.checkout>todayStr)
@@ -120,7 +123,7 @@ export default function App() {
     if (!prenForm.nome||!prenForm.checkin||!prenForm.checkout) { toast.show('Nome e date obbligatori'); return }
     if (prenForm.checkout<=prenForm.checkin) { toast.show('Check-out deve essere dopo check-in'); return }
     try {
-      await db.addPrenotazione({...prenForm, ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0, acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0})
+      await db.addPrenotazione({...prenForm, ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0, acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0, ospite_id:prenForm.ospite_id||null})
       toast.show('✅ Prenotazione salvata'); setModal(null); setPrenForm(emptyPren)
     } catch(e) { toast.show('❌ '+e.message) }
   }
@@ -204,6 +207,10 @@ OCCUPAZIONE MESE CORRENTE: ${occPerc}%
 
 TARIFFE ATTUALI:
 ${db.prezzi.map(p=>`- ${p.nome_periodo} (${p.tipo_periodo}): Airbnb €${p.prezzo_airbnb} / Booking €${p.prezzo_booking} / Diretto €${p.prezzo_diretto} — min ${p.soggiorno_min} notti`).join('\n')}
+
+REGOLA DI MARGINE (obbligatoria): l'utile netto minimo desiderato è ${fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte dopo commissione OTA + cedolare secca.
+Taglio combinato attuale: Diretto ${db.impostazioni.taglio_diretto_pct||21}% (solo cedolare) · Booking ${db.impostazioni.taglio_booking_pct||40}% · Airbnb ${db.impostazioni.taglio_airbnb_prima_pct||24}% fino al ${fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi ${db.impostazioni.taglio_airbnb_dopo_pct||40}% (si allinea a Booking).
+Ogni prezzo suggerito deve garantire questo utile minimo: prezzo_minimo = utile_min / (1 - taglio%).
 
 PRENOTAZIONI CONFERMATE PROSSIME:
 ${prossime.map(p=>`- ${p.nome}: ${p.checkin} → ${p.checkout} (${diffDays(p.checkout,p.checkin)} notti, ${p.piattaforma}, €${p.totale})`).join('\n')||'Nessuna'}
@@ -360,12 +367,13 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
       </div>
     )
+    const ospiteCollegato = p.ospite_id ? db.ospiti.find(o=>o.id===p.ospite_id) : null
     return(
       <div className={`bkc ${platCls}`} style={{marginBottom:10}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:7}}>
           <div>
             <div style={{fontSize:15,fontWeight:700}}>{p.nome}</div>
-            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>{statusChip}<span className={`badge ${platB}`}>{platL}</span></div>
+            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>{statusChip}<span className={`badge ${platB}`}>{platL}</span>{ospiteCollegato&&<span className="pill">{ospiteCollegato.nazionalita||'—'}</span>}</div>
           </div>
           <button className="del" onClick={()=>db.deletePrenotazione(p.id)}>🗑</button>
         </div>
@@ -392,6 +400,32 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       </div>
     )
   }
+
+  // ── Card evento iCal (senza prenotazione manuale collegata) ───────────
+  const IcalCard = ({it, compact=false}) => {
+    const nights=diffDays(it.checkout,it.checkin)
+    const platCls=it.piattaforma==='airbnb'?'airbnb':it.piattaforma==='booking'?'booking-com':'diretto'
+    const isBlocco=it.tipo==='blocco'
+    return (
+      <div className={`bkc ${platCls}`} style={{marginBottom:compact?7:10, opacity:isBlocco?0.75:1}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:7}}>
+          <div>
+            <div style={{fontSize:compact?13:15,fontWeight:700}}>{occupancyLabel(it)}</div>
+            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>
+              <span className={`badge ${piattaformaBadge(it.piattaforma)}`}>{piattaformaLabel(it.piattaforma)}</span>
+              {isBlocco&&<span className="pill">Blocco/Ferie</span>}
+            </div>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:'var(--grigio)',marginTop:7}}>📅 {fmtDate(it.checkin)} → {fmtDate(it.checkout)} · {nights}n</div>
+        <button className="btn bs bsm" style={{marginTop:8,width:'100%',justifyContent:'center'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>
+          {isBlocco?'↩ Segna come prenotazione':'🚫 Segna come chiusura'}
+        </button>
+      </div>
+    )
+  }
+
+  const OccCard = ({it, compact=false}) => it.kind==='manuale' ? <BkCard p={it.ref} compact={compact}/> : <IcalCard it={it} compact={compact}/>
 
   // ── Finanze mese ─────────────────────────────────────────────────────
   const finMk2 = monthKey(finMonth)
@@ -453,9 +487,9 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           </div>
 
           <div className="stitle">Prossime prenotazioni</div>
-          {prenFuture.slice(0,2).length===0
+          {occFuture.slice(0,2).length===0
             ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:14,marginBottom:9}}><div className="emi">📅</div><p>Nessuna prenotazione</p></div>
-            : prenFuture.slice(0,2).map(p=><BkCard key={p.id} p={p} compact/>)}
+            : occFuture.slice(0,2).map(it=><OccCard key={it.id} it={it} compact/>)}
 
           <div className="stitle">Scadenze imminenti</div>
           <div className="card">
@@ -524,6 +558,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                         {it.totale>0
                           ? <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:13,fontWeight:600,color:'var(--verde)'}}>{fmtFull(it.totale)}</span>
                           : <span style={{fontSize:9,color:'var(--grigio)'}}>—</span>}
+                        {it.kind==='ical'&&<button className="btn bs bsm" style={{fontSize:9,padding:'3px 7px'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>{it.tipo==='blocco'?'↩ Prenotazione':'🚫 Chiusura'}</button>}
                       </div>
                     </div>
                   ))}
@@ -536,9 +571,9 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             <button className="btn bp bsm" onClick={()=>setModal('modal-prenotazione')}>+ Prenotazione</button>
           </div>
           {icalStatus&&<div style={{fontSize:10,color:'var(--grigio)',marginBottom:8,textAlign:'center'}}>{icalStatus}</div>}
-          {prenFuture.length===0
+          {occFuture.length===0
             ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">📅</div><p>Nessuna prenotazione</p></div>
-            : prenFuture.map(p=><BkCard key={p.id} p={p}/>)}
+            : occFuture.map(it=><OccCard key={it.id} it={it}/>)}
           {db.prenotazioni.filter(p=>p.checkout<todayStr).length>0&&<>
             <div className="stitle">Storico</div>
             {db.prenotazioni.filter(p=>p.checkout<todayStr).sort((a,b)=>b.checkin.localeCompare(a.checkin)).slice(0,5).map(p=><BkCard key={p.id} p={p} compact/>)}
@@ -676,6 +711,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           </div>
 
           {prezziTab==='tariffe'&&<>
+            <div className="infobox">
+              <strong>ℹ️ Utile minimo garantito: {fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/giorno</strong>
+              Dopo commissione OTA + cedolare. Airbnb passa da {db.impostazioni.taglio_airbnb_prima_pct||24}% a {db.impostazioni.taglio_airbnb_dopo_pct||40}% (allineata a Booking) dal {fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}. Sotto ogni prezzo trovi il minimo consigliato per quel periodo; ⚠️ se il prezzo attuale è più basso.
+            </div>
             <div className="card" style={{padding:'10px 10px 4px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:4,marginBottom:6}}>
                 <div style={{fontSize:9,fontWeight:700,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.04em'}}>Periodo</div>
@@ -685,6 +724,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               </div>
               {db.prezzi.filter(p=>p.attivo).map(p=>{
                 const pc=PERIODO_COLOR[p.tipo_periodo]||PERIODO_COLOR.bassa
+                const refDate=p.data_inizio||todayStr
+                const minA=prezzoMinimo('airbnb',refDate,db.impostazioni)
+                const minB=prezzoMinimo('booking',refDate,db.impostazioni)
+                const minD=prezzoMinimo('diretto',refDate,db.impostazioni)
                 return <div key={p.id} style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:4,padding:'8px 0',borderTop:'1px solid var(--sabbia-scura)',alignItems:'center'}}>
                   <div>
                     <div style={{fontSize:11,fontWeight:600,color:'var(--pietra)'}}>{p.nome_periodo}</div>
@@ -694,9 +737,18 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                     </div>
                     {p.data_inizio&&<div style={{fontSize:9,color:'var(--grigio)',marginTop:2}}>{fmtDate(p.data_inizio)}→{fmtDate(p.data_fine)}</div>}
                   </div>
-                  <div style={{textAlign:'center',fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'#C02228'}}>{p.prezzo_airbnb?`€${p.prezzo_airbnb}`:'—'}</div>
-                  <div style={{textAlign:'center',fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'#003B95'}}>{p.prezzo_booking?`€${p.prezzo_booking}`:'—'}</div>
-                  <div style={{textAlign:'center',fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'var(--verde)'}}>{p.prezzo_diretto?`€${p.prezzo_diretto}`:'—'}</div>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'#C02228'}}>{p.prezzo_airbnb?`€${p.prezzo_airbnb}`:'—'}</div>
+                    <div style={{fontSize:8,color:p.prezzo_airbnb&&p.prezzo_airbnb<minA?'var(--rosso)':'var(--grigio)'}}>{p.prezzo_airbnb&&p.prezzo_airbnb<minA?'⚠️ ':''}min €{minA.toFixed(0)}</div>
+                  </div>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'#003B95'}}>{p.prezzo_booking?`€${p.prezzo_booking}`:'—'}</div>
+                    <div style={{fontSize:8,color:p.prezzo_booking&&p.prezzo_booking<minB?'var(--rosso)':'var(--grigio)'}}>{p.prezzo_booking&&p.prezzo_booking<minB?'⚠️ ':''}min €{minB.toFixed(0)}</div>
+                  </div>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'var(--verde)'}}>{p.prezzo_diretto?`€${p.prezzo_diretto}`:'—'}</div>
+                    <div style={{fontSize:8,color:p.prezzo_diretto&&p.prezzo_diretto<minD?'var(--rosso)':'var(--grigio)'}}>{p.prezzo_diretto&&p.prezzo_diretto<minD?'⚠️ ':''}min €{minD.toFixed(0)}</div>
+                  </div>
                 </div>
               })}
             </div>
@@ -783,7 +835,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         {/* ── GESTIONE ──────────────────────────────────────────── */}
         {!db.loading && screen==='gestione' && <>
           <div className="tabs">
-            {['scadenze','manutenzioni','inventario','documenti'].map(t=><button key={t} className={`tab${gestTab===t?' active':''}`} onClick={()=>setGestTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
+            {['scadenze','manutenzioni','inventario','documenti','ospiti'].map(t=><button key={t} className={`tab${gestTab===t?' active':''}`} onClick={()=>setGestTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
           </div>
 
           {gestTab==='scadenze'&&<>
@@ -884,6 +936,57 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             })}
             {db.documenti.length===0&&<div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20,marginBottom:9}}><div className="emi">📁</div><p>Nessun documento</p></div>}
           </>}
+
+          {gestTab==='ospiti'&&(() => {
+            const pren = db.prenotazioni.filter(p=>p.ospite_id)
+            const incassoOspiti = pren.reduce((s,p)=>s+Number(p.totale||0),0)
+            const nazBreak = {}
+            db.ospiti.forEach(o=>{ const n=o.nazionalita||'—'; nazBreak[n]=(nazBreak[n]||0)+1 })
+            const nazSorted = Object.entries(nazBreak).sort((a,b)=>b[1]-a[1])
+            return <>
+              <div className="kpi-strip k3">
+                <div className="kpi c"><div className="kv">{db.ospiti.length}</div><div className="kl">Ospiti</div></div>
+                <div className="kpi v"><div className="kv">{fmt(incassoOspiti)}</div><div className="kl">Incasso collegato</div></div>
+                <div className="kpi o"><div className="kv">{nazSorted.length}</div><div className="kl">Nazionalità</div></div>
+              </div>
+              {nazSorted.length>0&&<div className="card">
+                <div className="card-title"><span className="dot"/>Nazionalità</div>
+                <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                  {nazSorted.map(([n,c])=><span key={n} className="pill">{n} · {c}</span>)}
+                </div>
+              </div>}
+              <button className="btn bp bfull" style={{marginBottom:9}} onClick={()=>setModal('modal-ospite')}>+ Nuovo ospite</button>
+              {db.ospiti.map(o=>{
+                const prenOspite = db.prenotazioni.filter(p=>p.ospite_id===o.id).sort((a,b)=>b.checkin.localeCompare(a.checkin))
+                const totOspite = prenOspite.reduce((s,p)=>s+Number(p.totale||0),0)
+                return <div key={o.id} className="card" style={{marginBottom:8}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600}}>{o.nome} {o.cognome||''}</div>
+                      <div style={{display:'flex',gap:5,marginTop:4,flexWrap:'wrap'}}>
+                        <span className="pill">{o.nazionalita||'—'}</span>
+                        {o.tipo_documento&&<span className="pill">{o.tipo_documento}{o.numero_documento?' '+o.numero_documento:''}</span>}
+                      </div>
+                      {(o.email||o.telefono)&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:3}}>{o.email}{o.email&&o.telefono?' · ':''}{o.telefono}</div>}
+                      {o.data_nascita&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>🎂 {fmtDate(o.data_nascita)}{o.luogo_nascita?' · '+o.luogo_nascita:''}</div>}
+                      {o.note&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>📝 {o.note}</div>}
+                    </div>
+                    <button className="del" onClick={()=>db.deleteOspite(o.id)}>🗑</button>
+                  </div>
+                  {prenOspite.length>0&&<div style={{marginTop:9,paddingTop:8,borderTop:'1px solid var(--sabbia-scura)'}}>
+                    {prenOspite.map(p=>(
+                      <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:11,padding:'4px 0'}}>
+                        <span>📅 {fmtDate(p.checkin)} → {fmtDate(p.checkout)} · <span className={`badge ${piattaformaBadge(p.piattaforma)}`}>{piattaformaLabel(p.piattaforma)}</span></span>
+                        <span style={{fontFamily:'Cormorant Garamond,serif',fontWeight:600,color:'var(--verde)'}}>{fmtFull(p.totale)}</span>
+                      </div>
+                    ))}
+                    <div style={{fontSize:10,color:'var(--grigio)',marginTop:4,textAlign:'right'}}>Totale: <strong>{fmtFull(totOspite)}</strong></div>
+                  </div>}
+                </div>
+              })}
+              {db.ospiti.length===0&&<div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">👤</div><p>Nessun ospite registrato</p></div>}
+            </>
+          })()}
         </>}
       </main>
 
@@ -911,7 +1014,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       {/* FAB menu */}
       <Modal open={modal==='fab'} onClose={()=>setModal(null)}>
         <div style={{display:'flex',flexDirection:'column',gap:8,paddingTop:4}}>
-          {[['modal-prenotazione','📅','Nuova prenotazione','bp'],['modal-finanza','💶','Nuova transazione','bp'],['modal-bolletta','🧾','Nuova bolletta','bs'],['modal-scadenza','🔔','Nuova scadenza','bs'],['modal-manutenzione','🔧','Nuova manutenzione','bs'],['modal-inventario','📦','Nuovo inventario','bs'],['modal-documento','📁','Nuovo documento','bs'],['modal-prezzo','📊','Nuova tariffa','bs'],].map(([m,ic,lbl,cls])=>(
+          {[['modal-prenotazione','📅','Nuova prenotazione','bp'],['modal-finanza','💶','Nuova transazione','bp'],['modal-bolletta','🧾','Nuova bolletta','bs'],['modal-scadenza','🔔','Nuova scadenza','bs'],['modal-manutenzione','🔧','Nuova manutenzione','bs'],['modal-inventario','📦','Nuovo inventario','bs'],['modal-documento','📁','Nuovo documento','bs'],['modal-prezzo','📊','Nuova tariffa','bs'],['modal-ospite','👤','Nuovo ospite','bs'],].map(([m,ic,lbl,cls])=>(
             <button key={m} className={`btn ${cls} bfull`} style={{justifyContent:'flex-start',gap:12,padding:'12px 14px',fontSize:14}} onClick={()=>setModal(m)}><span style={{fontSize:18}}>{ic}</span>{lbl}</button>
           ))}
         </div>
@@ -937,7 +1040,38 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div className="fg"><label className="fl">Pagamento</label><select className="fs" value={prenForm.stato_pagamento} onChange={e=>setPrenForm(f=>({...f,stato_pagamento:e.target.value}))}><option value="da_saldare">Da saldare</option><option value="acconto">Acconto</option><option value="saldato">Saldato</option></select></div>
         </div>
         <div className="fg"><label className="fl">Note</label><input className="fi" value={prenForm.note} onChange={e=>setPrenForm(f=>({...f,note:e.target.value}))} placeholder="Telefono, richieste..."/></div>
+        <div className="fg">
+          <label className="fl">Ospite collegato (nazionalità, documento...)</label>
+          <select className="fs" value={prenForm.ospite_id} onChange={e=>setPrenForm(f=>({...f,ospite_id:e.target.value}))}>
+            <option value="">— Nessuno —</option>
+            {db.ospiti.map(o=><option key={o.id} value={o.id}>{o.nome} {o.cognome||''} ({o.nazionalita||'—'})</option>)}
+          </select>
+          {db.ospiti.length===0&&<div style={{fontSize:9,color:'var(--grigio)',marginTop:4}}>Nessun ospite salvato — crealo da Gestione → Ospiti per aggiungere nazionalità e documento.</div>}
+        </div>
         <button className="btn bp bfull" onClick={salvaPrenotazione}>Salva prenotazione</button>
+      </Modal>
+
+      {/* Ospite */}
+      <Modal open={modal==='modal-ospite'} onClose={()=>setModal(null)} title="Nuovo ospite">
+        <div className="frow">
+          <div className="fg"><label className="fl">Nome</label><input className="fi" value={ospForm.nome} onChange={e=>setOspForm(f=>({...f,nome:e.target.value}))} placeholder="Nome"/></div>
+          <div className="fg"><label className="fl">Cognome</label><input className="fi" value={ospForm.cognome} onChange={e=>setOspForm(f=>({...f,cognome:e.target.value}))} placeholder="Cognome"/></div>
+        </div>
+        <div className="frow">
+          <div className="fg"><label className="fl">Email</label><input type="email" className="fi" value={ospForm.email} onChange={e=>setOspForm(f=>({...f,email:e.target.value}))}/></div>
+          <div className="fg"><label className="fl">Telefono</label><input type="tel" className="fi" value={ospForm.telefono} onChange={e=>setOspForm(f=>({...f,telefono:e.target.value}))}/></div>
+        </div>
+        <div className="frow">
+          <div className="fg"><label className="fl">Nazionalità</label><input className="fi" value={ospForm.nazionalita} onChange={e=>setOspForm(f=>({...f,nazionalita:e.target.value}))} placeholder="IT"/></div>
+          <div className="fg"><label className="fl">Data nascita</label><input type="date" className="fi" value={ospForm.data_nascita} onChange={e=>setOspForm(f=>({...f,data_nascita:e.target.value}))}/></div>
+        </div>
+        <div className="fg"><label className="fl">Luogo di nascita</label><input className="fi" value={ospForm.luogo_nascita} onChange={e=>setOspForm(f=>({...f,luogo_nascita:e.target.value}))}/></div>
+        <div className="frow">
+          <div className="fg"><label className="fl">Tipo documento</label><select className="fs" value={ospForm.tipo_documento} onChange={e=>setOspForm(f=>({...f,tipo_documento:e.target.value}))}>{['CI','Passaporto','Patente'].map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+          <div className="fg"><label className="fl">N° documento</label><input className="fi" value={ospForm.numero_documento} onChange={e=>setOspForm(f=>({...f,numero_documento:e.target.value}))}/></div>
+        </div>
+        <div className="fg"><label className="fl">Note</label><input className="fi" value={ospForm.note} onChange={e=>setOspForm(f=>({...f,note:e.target.value}))}/></div>
+        <button className="btn bp bfull" onClick={salvaOspite}>Salva ospite</button>
       </Modal>
 
       {/* Finanza */}

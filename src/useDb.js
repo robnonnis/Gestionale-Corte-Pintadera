@@ -121,6 +121,17 @@ export function useDb() {
     return imported
   }
 
+  const toggleChiusuraIcal = async (uid, chiusura) => {
+    const { data: d, error } = await supabase.from('prenotazioni_ical').update({ chiusura_manuale: chiusura }).eq('uid', uid).select().single()
+    if (error) throw error
+    setData(prev => {
+      const next = prev.prenotazioniIcal.map(x => x.uid === uid ? d : x)
+      local.save('prenotazioniIcal', next)
+      return { ...prev, prenotazioniIcal: next }
+    })
+    return d
+  }
+
   // ── OSPITI ────────────────────────────────────────────────────────
   const addOspite = o => insert('ospiti', 'ospiti', o, (a,b)=>a.nome.localeCompare(b.nome))
   const updateOspite = (id, o) => update('ospiti', 'ospiti', id, o)
@@ -230,6 +241,7 @@ export function useDb() {
     addPrezzo, updatePrezzo, deletePrezzo,
     addRegola, updateRegola, deleteRegola,
     initChecklist, getChecklist, toggleChecklist,
+    toggleChiusuraIcal,
     addManutenzione, updateManutenzione, deleteManutenzione,
     addInventario, updateInventario, deleteInventario,
     addDocumento, updateDocumento, deleteDocumento,
