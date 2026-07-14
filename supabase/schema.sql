@@ -245,9 +245,9 @@ insert into impostazioni (chiave, valore) values
   -- Regole di pricing: taglio combinato (commissione OTA + cedolare secca) per
   -- piattaforma. Dal 13/10/2026 Airbnb allinea le commissioni a Booking.
   ('taglio_diretto_pct', '21'),
-  ('taglio_booking_pct', '40'),
+  ('taglio_booking_pct', '39'),
   ('taglio_airbnb_prima_pct', '24'),
-  ('taglio_airbnb_dopo_pct', '40'),
+  ('taglio_airbnb_dopo_pct', '39'),
   ('data_cambio_airbnb', '2026-10-13'),
   ('utile_min_giorno', '50')
 on conflict (chiave) do nothing;

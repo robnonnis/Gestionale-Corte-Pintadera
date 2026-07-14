@@ -209,7 +209,7 @@ TARIFFE ATTUALI:
 ${db.prezzi.map(p=>`- ${p.nome_periodo} (${p.tipo_periodo}): Airbnb €${p.prezzo_airbnb} / Booking €${p.prezzo_booking} / Diretto €${p.prezzo_diretto} — min ${p.soggiorno_min} notti`).join('\n')}
 
 REGOLA DI MARGINE (obbligatoria): l'utile netto minimo desiderato è ${fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte dopo commissione OTA + cedolare secca.
-Taglio combinato attuale: Diretto ${db.impostazioni.taglio_diretto_pct||21}% (solo cedolare) · Booking ${db.impostazioni.taglio_booking_pct||40}% · Airbnb ${db.impostazioni.taglio_airbnb_prima_pct||24}% fino al ${fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi ${db.impostazioni.taglio_airbnb_dopo_pct||40}% (si allinea a Booking).
+Taglio combinato attuale: Diretto ${db.impostazioni.taglio_diretto_pct||21}% (solo cedolare) · Booking ${db.impostazioni.taglio_booking_pct||39}% · Airbnb ${db.impostazioni.taglio_airbnb_prima_pct||24}% fino al ${fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi ${db.impostazioni.taglio_airbnb_dopo_pct||39}% (si allinea a Booking).
 Ogni prezzo suggerito deve garantire questo utile minimo: prezzo_minimo = utile_min / (1 - taglio%).
 
 PRENOTAZIONI CONFERMATE PROSSIME:
@@ -713,7 +713,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {prezziTab==='tariffe'&&<>
             <div className="infobox">
               <strong>ℹ️ Utile minimo garantito: {fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/giorno</strong>
-              Dopo commissione OTA + cedolare. Airbnb passa da {db.impostazioni.taglio_airbnb_prima_pct||24}% a {db.impostazioni.taglio_airbnb_dopo_pct||40}% (allineata a Booking) dal {fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}. Sotto ogni prezzo trovi il minimo consigliato per quel periodo; ⚠️ se il prezzo attuale è più basso.
+              Dopo commissione OTA + cedolare. Airbnb passa da {db.impostazioni.taglio_airbnb_prima_pct||24}% a {db.impostazioni.taglio_airbnb_dopo_pct||39}% (allineata a Booking) dal {fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}. Sotto ogni prezzo trovi il minimo consigliato per quel periodo; ⚠️ se il prezzo attuale è più basso.
             </div>
             <div className="card" style={{padding:'10px 10px 4px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:4,marginBottom:6}}>
