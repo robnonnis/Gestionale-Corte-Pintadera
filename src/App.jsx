@@ -385,6 +385,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {p.stato_pagamento==='saldato'?<span className="badge b-ok">Saldato</span>:p.stato_pagamento==='acconto'?<span className="badge b-oggi">Acconto</span>:<span className="badge b-scaduto">Da saldare</span>}
         </div>
         <div style={{display:'flex',gap:5,marginTop:8}}>
+          <button className="btn bp bsm" onClick={e=>{e.stopPropagation();apriModificaPrenotazione(p)}}>✏️ Modifica</button>
           <button className="btn bs bsm" style={{flex:1}} onClick={e=>{e.stopPropagation();setSelectedPren(p);setModal('messaggi')}}>💬 Messaggi</button>
           <button className="btn bs bsm" style={{flex:1}} onClick={e=>{e.stopPropagation();openChecklist(p)}}>🧹 Checklist</button>
           <button className="btn bs bsm" onClick={e=>{e.stopPropagation();setSelectedPren(p);setModal('alloggiati')}}>📋 Allog.</button>
@@ -416,8 +417,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
         {p.netto>0&&p.commissione>0&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>Commissione: {fmtFull(p.commissione)} · Netto: {fmtFull(p.netto)}</div>}
         {p.note&&<div style={{fontSize:11,color:'var(--grigio)',marginTop:5,paddingTop:5,borderTop:'1px solid var(--sabbia-scura)'}}>📝 {p.note}</div>}
-        <div style={{fontSize:9,color:'var(--grigio)',marginTop:6,textAlign:'center'}}>✏️ Tocca per modificare</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:5,marginTop:6,paddingTop:8,borderTop:'1px solid var(--sabbia-scura)'}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:5,marginTop:10,paddingTop:8,borderTop:'1px solid var(--sabbia-scura)'}}>
+          <button className="btn bp bsm bfull" onClick={e=>{e.stopPropagation();apriModificaPrenotazione(p)}}>✏️ Modifica</button>
           <button className="btn bs bsm bfull" onClick={e=>{e.stopPropagation();setSelectedPren(p);setModal('messaggi')}}>💬 Messaggi</button>
           <button className="btn bs bsm bfull" onClick={e=>{e.stopPropagation();openChecklist(p)}}>🧹 Pulizie</button>
           <button className="btn bs bsm bfull" onClick={e=>{e.stopPropagation();setSelectedPren(p);setModal('alloggiati')}}>📋 Allog.</button>
@@ -589,6 +590,33 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                   ))}
               </div>
             </>
+          })()}
+
+          {/* ── Proiezione utili (mese visualizzato) ────────────────── */}
+          {(() => {
+            const cy=calMonth.getFullYear(), cm=calMonth.getMonth()
+            const mk2 = cy+'-'+String(cm+1).padStart(2,'0')
+            const prenMese = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk2)
+            if (prenMese.length===0) return null
+            let lordo=0, netto=0, notti=0
+            prenMese.forEach(p=>{
+              const t=Number(p.totale||0)
+              const comm = p.commissione>0 ? Number(p.commissione) : t*taglioPiattaforma(p.piattaforma,p.checkin,db.impostazioni)/100
+              lordo+=t; netto+=(t-comm); notti+=diffDays(p.checkout,p.checkin)
+            })
+            const target = notti*parseFloat(db.impostazioni.utile_min_giorno||50)
+            const okTarget = netto>=target
+            return <div className="card" style={{marginBottom:9}}>
+              <div className="card-title"><span className="dot"/>Proiezione utili — {MESI[cm]}</div>
+              <div style={{display:'flex',justifyContent:'space-around',textAlign:'center'}}>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{fmt(lordo)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Lordo</div></div>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600,color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmt(netto)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Netto stimato</div></div>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
+              </div>
+              <div style={{fontSize:10,color:okTarget?'var(--verde)':'var(--rosso)',marginTop:8,textAlign:'center'}}>
+                {okTarget?'✅':'⚠️'} Obiettivo {fmt(target)} ({fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte) — {okTarget?'raggiunto':'non raggiunto'}
+              </div>
+            </div>
           })()}
 
           <div style={{display:'flex',gap:6,marginBottom:9}}>
@@ -1061,10 +1089,20 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div className="fg"><label className="fl">Acconto (€)</label><input type="number" className="fi" value={prenForm.acconto} onChange={e=>setPrenForm(f=>({...f,acconto:e.target.value}))} step="0.01"/></div>
           <div className="fg"><label className="fl">Commissione (€)</label><input type="number" className="fi" value={prenForm.commissione} onChange={e=>setPrenForm(f=>({...f,commissione:e.target.value}))} step="0.01"/></div>
         </div>
-        {prenForm.totale&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:11}}>
-          Netto: <strong style={{color:'var(--verde)'}}>{fmtFull((parseFloat(prenForm.totale)||0)-(parseFloat(prenForm.commissione)||0))}</strong>
-          {prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin&&diffDays(prenForm.checkout,prenForm.checkin)>0&&<> · {fmtFull(((parseFloat(prenForm.totale)||0)-(parseFloat(prenForm.commissione)||0))/diffDays(prenForm.checkout,prenForm.checkin))}/notte</>}
-        </div>}
+        {prenForm.totale&&(() => {
+          const lordo = parseFloat(prenForm.totale)||0
+          const commManuale = prenForm.commissione!==''
+          const commissione = commManuale ? (parseFloat(prenForm.commissione)||0) : lordo*taglioPiattaforma(prenForm.piattaforma, prenForm.checkin||todayStr, db.impostazioni)/100
+          const netto = lordo-commissione
+          const notti = (prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin) ? diffDays(prenForm.checkout,prenForm.checkin) : 0
+          const nettoNotte = notti>0 ? netto/notti : null
+          const target = parseFloat(db.impostazioni.utile_min_giorno||50)
+          const sottoSoglia = nettoNotte!==null && nettoNotte<target
+          return <div style={{fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:11}}>
+            Netto{commManuale?'':' stimato'}: <strong style={{color:sottoSoglia?'var(--rosso)':'var(--verde)'}}>{fmtFull(netto)}</strong>
+            {nettoNotte!==null&&<> · {fmtFull(nettoNotte)}/notte{sottoSoglia&&<> ⚠️ sotto i {fmt(target)}/notte</>}</>}
+          </div>
+        })()}
         <div className="frow">
           <div className="fg"><label className="fl">Piattaforma</label><select className="fs" value={prenForm.piattaforma} onChange={e=>setPrenForm(f=>({...f,piattaforma:e.target.value}))}><option value="diretto">Diretto</option><option value="airbnb">Airbnb</option><option value="booking">Booking.com</option><option value="altro">Altro</option></select></div>
           <div className="fg"><label className="fl">Pagamento</label><select className="fs" value={prenForm.stato_pagamento} onChange={e=>setPrenForm(f=>({...f,stato_pagamento:e.target.value}))}><option value="da_saldare">Da saldare</option><option value="acconto">Acconto</option><option value="saldato">Saldato</option></select></div>
