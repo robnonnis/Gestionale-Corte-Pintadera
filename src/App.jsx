@@ -59,7 +59,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'' }
+  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
   const emptyMan = { titolo:'', tipo:'ordinaria', data:today(), costo:'', fornitore:'', telefono:'', stato:'completato', prossima_data:'', note:'' }
@@ -115,10 +115,11 @@ export default function App() {
 
   // Trova un'occupazione (manuale o iCal) che si sovrappone alle date date,
   // escludendo eventualmente la prenotazione che si sta modificando
-  const trovaSovrapposizione = (checkin, checkout, excludeId) => {
+  const trovaSovrapposizione = (checkin, checkout, excludeId, excludeIcalUid) => {
     if (!checkin || !checkout || checkout<=checkin) return null
     return occ.items.find(it => {
       if (excludeId && it.kind==='manuale' && it.ref.id===excludeId) return false
+      if (excludeIcalUid && it.kind==='ical' && it.ref.uid===excludeIcalUid) return false
       return checkin<it.checkout && checkout>it.checkin
     }) || null
   }
@@ -133,8 +134,15 @@ export default function App() {
     setPrenForm({
       id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout, ospiti_num:p.ospiti_num||1,
       totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', piattaforma:p.piattaforma||'diretto',
-      stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||''
+      stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||''
     })
+    setModal('modal-prenotazione')
+  }
+  // "Promuove" un evento iCal senza prenotazione manuale (es. Booking, che non
+  // ha mai nome/importo) a prenotazione modificabile, collegandola tramite
+  // ical_uid cosi' che non compaia piu' come voce "fantasma" separata.
+  const apriDaIcal = (it) => {
+    setPrenForm({...emptyPren, checkin:it.checkin, checkout:it.checkout, piattaforma:it.piattaforma, ical_uid:it.ref.uid})
     setModal('modal-prenotazione')
   }
   const salvaPrenotazione = async () => {
@@ -145,7 +153,7 @@ export default function App() {
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
         acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0,
         piattaforma:prenForm.piattaforma, stato_pagamento:prenForm.stato_pagamento, note:prenForm.note,
-        ospite_id:prenForm.ospite_id||null}
+        ospite_id:prenForm.ospite_id||null, ical_uid:prenForm.ical_uid||null}
       if (prenForm.id) await db.updatePrenotazione(prenForm.id, payload)
       else await db.addPrenotazione(payload)
       toast.show('✅ Prenotazione salvata'); setModal(null); setPrenForm(emptyPren)
@@ -444,9 +452,12 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           </div>
         </div>
         <div style={{fontSize:11,color:'var(--grigio)',marginTop:7}}>📅 {fmtDate(it.checkin)} → {fmtDate(it.checkout)} · {nights}n</div>
-        <button className="btn bs bsm" style={{marginTop:8,width:'100%',justifyContent:'center'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>
-          {isBlocco?'↩ Segna come prenotazione':'🚫 Segna come chiusura'}
-        </button>
+        <div style={{display:'flex',gap:5,marginTop:8}}>
+          {!isBlocco&&<button className="btn bp bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>apriDaIcal(it)}>✏️ Aggiungi dettagli</button>}
+          <button className="btn bs bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>
+            {isBlocco?'↩ Segna come prenotazione':'🚫 Segna come chiusura'}
+          </button>
+        </div>
       </div>
     )
   }
@@ -584,6 +595,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                         {it.totale>0
                           ? <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:13,fontWeight:600,color:'var(--verde)'}}>{fmtFull(it.totale)}</span>
                           : <span style={{fontSize:9,color:'var(--grigio)'}}>—</span>}
+                        {it.kind==='ical'&&it.tipo!=='blocco'&&<button className="btn bp bsm" style={{fontSize:9,padding:'3px 7px'}} onClick={()=>apriDaIcal(it)}>✏️ Dettagli</button>}
                         {it.kind==='ical'&&<button className="btn bs bsm" style={{fontSize:9,padding:'3px 7px'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>{it.tipo==='blocco'?'↩ Prenotazione':'🚫 Chiusura'}</button>}
                       </div>
                     </div>
@@ -1074,7 +1086,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       </Modal>
 
       {/* Prenotazione */}
-      <Modal open={modal==='modal-prenotazione'} onClose={()=>setModal(null)} title={prenForm.id?'Modifica prenotazione':'Nuova prenotazione'}>
+      <Modal open={modal==='modal-prenotazione'} onClose={()=>setModal(null)} title={prenForm.id?'Modifica prenotazione':prenForm.ical_uid?'Completa prenotazione (da iCal)':'Nuova prenotazione'}>
         <div className="fg"><label className="fl">Nome ospite</label><input className="fi" value={prenForm.nome} onChange={e=>setPrenForm(f=>({...f,nome:e.target.value}))} placeholder="Nome Cognome"/></div>
         <div className="frow">
           <div className="fg"><label className="fl">Check-in</label><input type="date" className="fi" value={prenForm.checkin} onChange={e=>setPrenForm(f=>({...f,checkin:e.target.value}))}/></div>
@@ -1117,7 +1129,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {db.ospiti.length===0&&<div style={{fontSize:9,color:'var(--grigio)',marginTop:4}}>Nessun ospite salvato — crealo da Gestione → Ospiti per aggiungere nazionalità e documento.</div>}
         </div>
         {(() => {
-          const overlap = trovaSovrapposizione(prenForm.checkin, prenForm.checkout, prenForm.id)
+          const overlap = trovaSovrapposizione(prenForm.checkin, prenForm.checkout, prenForm.id, prenForm.ical_uid)
           return <>
             {overlap&&<div className="alert">⚠️ Date sovrapposte con {occupancyLabel(overlap)||'un\'altra prenotazione'} ({fmtDate(overlap.checkin)} → {fmtDate(overlap.checkout)}) — puoi salvare comunque.</div>}
             <button className={`btn ${overlap?'bd':'bp'} bfull`} onClick={salvaPrenotazione}>{overlap?'Salva comunque':'Salva prenotazione'}</button>
