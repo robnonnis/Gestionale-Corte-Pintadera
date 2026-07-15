@@ -137,12 +137,9 @@ export default function App() {
     })
     setModal('modal-prenotazione')
   }
-  const salvaPrenotazione = async (forza=false) => {
+  const salvaPrenotazione = async () => {
     if (!prenForm.nome||!prenForm.checkin||!prenForm.checkout) { toast.show('Nome e date obbligatori'); return }
     if (prenForm.checkout<=prenForm.checkin) { toast.show('Check-out deve essere dopo check-in'); return }
-    if (!forza && trovaSovrapposizione(prenForm.checkin, prenForm.checkout, prenForm.id)) {
-      toast.show('⚠️ Date sovrapposte — usa "Salva comunque" per forzare'); return
-    }
     try {
       const payload = {nome:prenForm.nome, checkin:prenForm.checkin, checkout:prenForm.checkout,
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
@@ -1083,10 +1080,9 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
         {(() => {
           const overlap = trovaSovrapposizione(prenForm.checkin, prenForm.checkout, prenForm.id)
-          if (!overlap) return <button className="btn bp bfull" onClick={()=>salvaPrenotazione(false)}>Salva prenotazione</button>
           return <>
-            <div className="alert">⚠️ Date sovrapposte con {occupancyLabel(overlap)} ({fmtDate(overlap.checkin)} → {fmtDate(overlap.checkout)})</div>
-            <button className="btn bd bfull" onClick={()=>salvaPrenotazione(true)}>Salva comunque</button>
+            {overlap&&<div className="alert">⚠️ Date sovrapposte con {occupancyLabel(overlap)||'un\'altra prenotazione'} ({fmtDate(overlap.checkin)} → {fmtDate(overlap.checkout)}) — puoi salvare comunque.</div>}
+            <button className={`btn ${overlap?'bd':'bp'} bfull`} onClick={salvaPrenotazione}>{overlap?'Salva comunque':'Salva prenotazione'}</button>
           </>
         })()}
       </Modal>
