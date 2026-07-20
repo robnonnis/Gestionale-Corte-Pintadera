@@ -149,3 +149,16 @@ export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impost
   const netto = l - commissione - cedolare
   return { lordo:l, commissione, cedolare, netto, stimata }
 }
+
+// Aggrega piu' prenotazioni in un unico riepilogo economico (lordo, commissioni,
+// cedolare, netto, notti, conteggio). Unico posto che somma questi numeri:
+// usato da Home, Prenotazioni, Finanze — cosi' il calcolo resta uno solo.
+export function aggregaPrenotazioni(prenotazioni, impostazioni) {
+  let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
+  prenotazioni.forEach(p => {
+    const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, impostazioni)
+    lordo += s.lordo; commissione += s.commissione; cedolare += s.cedolare; netto += s.netto
+    notti += diffDays(p.checkout, p.checkin)
+  })
+  return { lordo, commissione, cedolare, netto, notti, count: prenotazioni.length }
+}

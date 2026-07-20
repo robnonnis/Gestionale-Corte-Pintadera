@@ -8,7 +8,7 @@ import {
   getUrgenza, CAT_ICON, BOLL_TIPI, PERIODO_COLOR,
   piattaformaLabel, piattaformaBadge, REGOLA_TIPO_LABEL,
   buildOccupancy, occupancyLabel, occupancyColorClass,
-  prezzoMinimo, scomponi
+  prezzoMinimo, scomponi, aggregaPrenotazioni
 } from './utils'
 
 // ── Logo ─────────────────────────────────────────────────────────────────
@@ -92,8 +92,9 @@ export default function App() {
   // Incassi: dalla tabella prenotazioni (somma totale), non dalle finanze —
   // le finanze non vengono compilate per ogni prenotazione importata da iCal.
   const prenMeseHome = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk)
-  const entrMese = prenMeseHome.reduce((s,p)=>s+Number(p.totale||0),0)
-  const nettoMese = prenMeseHome.reduce((s,p)=>s+scomponi(p.piattaforma,p.checkin,p.totale,p.commissione,db.impostazioni).netto,0)
+  const aggMeseHome = aggregaPrenotazioni(prenMeseHome, db.impostazioni)
+  const entrMese = aggMeseHome.lordo
+  const nettoMese = aggMeseHome.netto
   const uscMese  = finMese.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
   const todayStr = today()
   const prenFuture = db.prenotazioni.filter(p=>p.checkout>=todayStr).sort((a,b)=>a.checkin.localeCompare(b.checkin))
@@ -487,6 +488,22 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
 
   const OccCard = ({it, compact=false}) => it.kind==='manuale' ? <BkCard p={it.ref} compact={compact}/> : <IcalCard it={it} compact={compact}/>
 
+  // ── Riepilogo economico condiviso (Lordo/Commissioni/Cedolare/Netto) ──
+  // Un solo posto che disegna questo blocco: usato in Prenotazioni, Finanze
+  // e nel dettaglio entrate, cosi' non e' ripetuto in 3 varianti leggermente diverse.
+  const RiepilogoEconomico = ({agg, titoloNetto='Netto', obiettivo}) => {
+    const okTarget = obiettivo==null || agg.netto>=obiettivo
+    return <div style={{borderTop:'1px solid var(--sabbia-scura)',paddingTop:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo</span><strong>{fmtFull(agg.lordo)}</strong></div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(agg.commissione)}</span></div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(agg.cedolare)}</span></div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>{titoloNetto}</span><strong style={{color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmtFull(agg.netto)}</strong></div>
+      {obiettivo!=null&&<div style={{fontSize:10,color:okTarget?'var(--verde)':'var(--rosso)',marginTop:8,textAlign:'center'}}>
+        {okTarget?'✅':'⚠️'} Obiettivo {fmt(obiettivo)} ({fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte) — {okTarget?'raggiunto':'non raggiunto'}
+      </div>}
+    </div>
+  }
+
   // ── Finanze mese ─────────────────────────────────────────────────────
   const finMk2 = monthKey(finMonth)
   const finItems2 = db.finanze.filter(f=>f.data.slice(0,7)===finMk2)
@@ -504,13 +521,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     const mk3=annoCorrente+'-'+String(i+1).padStart(2,'0')
     const mf=db.finanze.filter(f=>f.data.slice(0,7)===mk3)
     const mp=db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk3)
-    let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
-    mp.forEach(p=>{
-      const s=scomponi(p.piattaforma,p.checkin,p.totale,p.commissione,db.impostazioni)
-      lordo+=s.lordo; commissione+=s.commissione; cedolare+=s.cedolare; netto+=s.netto
-      notti+=diffDays(p.checkout,p.checkin)
-    })
-    return { nome:nome.slice(0,3), e:lordo, commissione, cedolare, netto, prenotazioni:mp.length, notti,
+    const agg=aggregaPrenotazioni(mp, db.impostazioni)
+    return { nome:nome.slice(0,3), e:agg.lordo, commissione:agg.commissione, cedolare:agg.cedolare, netto:agg.netto, prenotazioni:agg.count, notti:agg.notti,
       u:mf.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0) }
   })
   const maxR = Math.max(...reportMesi.map(m=>Math.max(m.e,m.u)),1)
@@ -610,62 +622,19 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             </div>
           </div>
 
-          {/* ── Dettaglio prenotazioni (tutta la stagione, non solo il mese aperto nel mini-calendario) ─────────── */}
-          {(() => {
-            const detailItems=occFuture
-            return <>
-              <div className="stitle">Dettaglio prenotazioni</div>
-              <div className="card">
-                {detailItems.length===0
-                  ? <div className="empty" style={{padding:12}}><div className="emi">📅</div><p>Nessuna prenotazione futura</p></div>
-                  : detailItems.map(it=>(
-                    <div key={it.id} className="ir">
-                      <div className={`iico ${it.tipo==='blocco'?'o':it.piattaforma==='airbnb'?'r':it.piattaforma==='booking'?'c':'v'}`}>{it.tipo==='blocco'?'🚫':'🏠'}</div>
-                      <div className="ibody">
-                        <div className="iname">{occupancyLabel(it)}</div>
-                        <div className="imeta">{fmtDate(it.checkin)} → {fmtDate(it.checkout)}</div>
-                      </div>
-                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}}>
-                        <span className={`badge ${piattaformaBadge(it.piattaforma)}`}>{piattaformaLabel(it.piattaforma)}</span>
-                        {it.totale>0
-                          ? <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:13,fontWeight:600,color:'var(--verde)'}}>{fmtFull(it.totale)}</span>
-                          : <span style={{fontSize:9,color:'var(--grigio)'}}>—</span>}
-                        {it.kind==='ical'&&it.tipo!=='blocco'&&<button className="btn bp bsm" style={{fontSize:9,padding:'3px 7px'}} onClick={()=>apriDaIcal(it)}>✏️ Dettagli</button>}
-                        {it.kind==='ical'&&<button className="btn bs bsm" style={{fontSize:9,padding:'3px 7px'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>{it.tipo==='blocco'?'↩ Prenotazione':'🚫 Chiusura'}</button>}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </>
-          })()}
-
           {/* ── Proiezione utili (tutte le prenotazioni future, non solo il mese visualizzato) ────────────────── */}
           {(() => {
             const prenStagione = db.prenotazioni.filter(p=>p.checkout>=todayStr)
             if (prenStagione.length===0) return null
-            let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
-            prenStagione.forEach(p=>{
-              const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni)
-              lordo+=s.lordo; commissione+=s.commissione; cedolare+=s.cedolare; netto+=s.netto
-              notti+=diffDays(p.checkout,p.checkin)
-            })
-            const target = notti*parseFloat(db.impostazioni.utile_min_giorno||50)
-            const okTarget = netto>=target
+            const agg = aggregaPrenotazioni(prenStagione, db.impostazioni)
+            const obiettivo = agg.notti*parseFloat(db.impostazioni.utile_min_giorno||50)
             return <div className="card" style={{marginBottom:9}}>
               <div className="card-title"><span className="dot"/>Proiezione utili — prossime prenotazioni</div>
               <div style={{display:'flex',justifyContent:'space-around',textAlign:'center',marginBottom:10}}>
-                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenStagione.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
-                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{agg.count}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{agg.notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
               </div>
-              <div style={{borderTop:'1px solid var(--sabbia-scura)',paddingTop:8}}>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo</span><strong>{fmtFull(lordo)}</strong></div>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(commissione)}</span></div>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedolare)}</span></div>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>Netto stagione</span><strong style={{color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmtFull(netto)}</strong></div>
-              </div>
-              <div style={{fontSize:10,color:okTarget?'var(--verde)':'var(--rosso)',marginTop:8,textAlign:'center'}}>
-                {okTarget?'✅':'⚠️'} Obiettivo {fmt(target)} ({fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte) — {okTarget?'raggiunto':'non raggiunto'}
-              </div>
+              <RiepilogoEconomico agg={agg} titoloNetto="Netto stagione" obiettivo={obiettivo}/>
             </div>
           })()}
 
@@ -674,9 +643,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             <button className="btn bp bsm" onClick={()=>{setPrenForm(emptyPren);setModal('modal-prenotazione')}}>+ Prenotazione</button>
           </div>
           {icalStatus&&<div style={{fontSize:10,color:'var(--grigio)',marginBottom:8,textAlign:'center'}}>{icalStatus}</div>}
+          <div className="stitle">Dettaglio prenotazioni</div>
           {occFuture.length===0
             ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">📅</div><p>Nessuna prenotazione</p></div>
-            : occFuture.map(it=><OccCard key={it.id} it={it}/>)}
+            : occFuture.map(it=><OccCard key={it.id} it={it} compact/>)}
           {(() => {
             const recensite = db.prenotazioni.filter(p=>p.recensione_voto!=null)
             if (recensite.length===0) return null
@@ -818,26 +788,18 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
 
             {/* ── Analisi stagione: lordo/commissioni/cedolare/netto da prenotazioni ── */}
             {(() => {
-              const prenotazioni=reportMesi.reduce((s,m)=>s+m.prenotazioni,0)
-              if (prenotazioni===0) return null
-              const lordo=reportMesi.reduce((s,m)=>s+m.e,0)
-              const commissione=reportMesi.reduce((s,m)=>s+m.commissione,0)
-              const cedolare=reportMesi.reduce((s,m)=>s+m.cedolare,0)
-              const netto=reportMesi.reduce((s,m)=>s+m.netto,0)
-              const notti=reportMesi.reduce((s,m)=>s+m.notti,0)
+              const agg = { lordo:reportMesi.reduce((s,m)=>s+m.e,0), commissione:reportMesi.reduce((s,m)=>s+m.commissione,0),
+                cedolare:reportMesi.reduce((s,m)=>s+m.cedolare,0), netto:reportMesi.reduce((s,m)=>s+m.netto,0),
+                notti:reportMesi.reduce((s,m)=>s+m.notti,0), count:reportMesi.reduce((s,m)=>s+m.prenotazioni,0) }
+              if (agg.count===0) return null
               return <div className="card">
                 <div className="card-title"><span className="dot"/>Analisi prenotazioni {annoCorrente}</div>
                 <div style={{display:'flex',justifyContent:'space-around',textAlign:'center',marginBottom:10}}>
-                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenotazioni}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
-                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
-                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{fmtFull(notti?lordo/notti:0)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Media/notte</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{agg.count}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{agg.notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{fmtFull(agg.notti?agg.lordo/agg.notti:0)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Media/notte</div></div>
                 </div>
-                <div style={{borderTop:'1px solid var(--sabbia-scura)',paddingTop:8}}>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo prenotazioni</span><strong>{fmtFull(lordo)}</strong></div>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(commissione)}</span></div>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedolare)}</span></div>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>Netto prenotazioni</span><strong style={{color:'var(--verde)'}}>{fmtFull(netto)}</strong></div>
-                </div>
+                <RiepilogoEconomico agg={agg} titoloNetto="Netto prenotazioni"/>
               </div>
             })()}
             <div style={{marginTop:4}}>
@@ -1260,16 +1222,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                   </div>
                 </div>
               })}
-              {(() => {
-                let commTot=0, cedTot=0, nettoTot=0
-                voci.forEach(p=>{ const s=scomponi(p.piattaforma,p.checkin,p.totale,p.commissione,db.impostazioni); commTot+=s.commissione; cedTot+=s.cedolare; nettoTot+=s.netto })
-                return <div style={{marginTop:10,paddingTop:9,borderTop:'1px solid var(--sabbia-scura)'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12}}><span>Lordo</span><strong>{fmtFull(entrMese)}</strong></div>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12,color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(commTot)}</span></div>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12,color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedTot)}</span></div>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>Netto</span><span style={{color:'var(--verde)'}}>{fmtFull(nettoTot)}</span></div>
-                </div>
-              })()}
+              <div style={{marginTop:10}}><RiepilogoEconomico agg={aggregaPrenotazioni(voci, db.impostazioni)} titoloNetto="Netto"/></div>
             </>
         })()}
       </Modal>
