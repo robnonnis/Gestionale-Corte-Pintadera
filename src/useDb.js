@@ -62,6 +62,22 @@ export function useDb() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  // Ricarica quando l'app torna in primo piano (es. riaprendo il telefono)
+  // e periodicamente ogni 5 minuti, cosi' i dati restano sincronizzati con
+  // il sync iCal automatico (ogni 2h) e con le modifiche fatte da altri
+  // dispositivi, senza dover ricaricare manualmente la pagina.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') loadAll() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', loadAll)
+    const interval = setInterval(loadAll, 5 * 60 * 1000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', loadAll)
+      clearInterval(interval)
+    }
+  }, [loadAll])
+
   // ── Generic helpers ────────────────────────────────────────────────
   const insert = async (table, stateKey, payload, sort) => {
     const { data: d, error } = await supabase.from(table).insert([payload]).select().single()

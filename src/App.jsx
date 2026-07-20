@@ -492,7 +492,15 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   const reportMesi = MESI.map((nome,i)=>{
     const mk3=annoCorrente+'-'+String(i+1).padStart(2,'0')
     const mf=db.finanze.filter(f=>f.data.slice(0,7)===mk3)
-    return { nome:nome.slice(0,3), e:mf.filter(f=>f.tipo==='entrata').reduce((s,f)=>s+Number(f.importo),0), u:mf.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0) }
+    const mp=db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk3)
+    let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
+    mp.forEach(p=>{
+      const s=scomponi(p.piattaforma,p.checkin,p.totale,p.commissione,db.impostazioni)
+      lordo+=s.lordo; commissione+=s.commissione; cedolare+=s.cedolare; netto+=s.netto
+      notti+=diffDays(p.checkout,p.checkin)
+    })
+    return { nome:nome.slice(0,3), e:lordo, commissione, cedolare, netto, prenotazioni:mp.length, notti,
+      u:mf.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0) }
   })
   const maxR = Math.max(...reportMesi.map(m=>Math.max(m.e,m.u)),1)
 
@@ -776,10 +784,35 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                 return <div style={{display:'flex',justifyContent:'space-around',textAlign:'center'}}>
                   <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:'var(--verde)'}}>{fmt(totE)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Entrate</div></div>
                   <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:'var(--rosso)'}}>{fmt(totU)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Uscite</div></div>
-                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:totE-totU>=0?'var(--verde)':'var(--rosso)'}}>{fmt(totE-totU)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Netto</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:totE-totU>=0?'var(--verde)':'var(--rosso)'}}>{fmt(totE-totU)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Saldo</div></div>
                 </div>
               })()}
             </div>
+
+            {/* ── Analisi stagione: lordo/commissioni/cedolare/netto da prenotazioni ── */}
+            {(() => {
+              const prenotazioni=reportMesi.reduce((s,m)=>s+m.prenotazioni,0)
+              if (prenotazioni===0) return null
+              const lordo=reportMesi.reduce((s,m)=>s+m.e,0)
+              const commissione=reportMesi.reduce((s,m)=>s+m.commissione,0)
+              const cedolare=reportMesi.reduce((s,m)=>s+m.cedolare,0)
+              const netto=reportMesi.reduce((s,m)=>s+m.netto,0)
+              const notti=reportMesi.reduce((s,m)=>s+m.notti,0)
+              return <div className="card">
+                <div className="card-title"><span className="dot"/>Analisi prenotazioni {annoCorrente}</div>
+                <div style={{display:'flex',justifyContent:'space-around',textAlign:'center',marginBottom:10}}>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenotazioni}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{fmtFull(notti?lordo/notti:0)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Media/notte</div></div>
+                </div>
+                <div style={{borderTop:'1px solid var(--sabbia-scura)',paddingTop:8}}>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo prenotazioni</span><strong>{fmtFull(lordo)}</strong></div>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(commissione)}</span></div>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedolare)}</span></div>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>Netto prenotazioni</span><strong style={{color:'var(--verde)'}}>{fmtFull(netto)}</strong></div>
+                </div>
+              </div>
+            })()}
             <div style={{marginTop:4}}>
               <button className="btn bs bfull" onClick={()=>{
                 let csv='Tipo,Descrizione,Importo,Data,Categoria\n'
