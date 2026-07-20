@@ -91,7 +91,9 @@ export default function App() {
   const finMese = db.finanze.filter(f=>f.data.slice(0,7)===mk)
   // Incassi: dalla tabella prenotazioni (somma totale), non dalle finanze —
   // le finanze non vengono compilate per ogni prenotazione importata da iCal.
-  const entrMese = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk).reduce((s,p)=>s+Number(p.totale||0),0)
+  const prenMeseHome = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk)
+  const entrMese = prenMeseHome.reduce((s,p)=>s+Number(p.totale||0),0)
+  const nettoMese = prenMeseHome.reduce((s,p)=>s+scomponi(p.piattaforma,p.checkin,p.totale,p.commissione,db.impostazioni).netto,0)
   const uscMese  = finMese.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
   const todayStr = today()
   const prenFuture = db.prenotazioni.filter(p=>p.checkout>=todayStr).sort((a,b)=>a.checkin.localeCompare(b.checkin))
@@ -488,7 +490,11 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   // ── Finanze mese ─────────────────────────────────────────────────────
   const finMk2 = monthKey(finMonth)
   const finItems2 = db.finanze.filter(f=>f.data.slice(0,7)===finMk2)
+  // Entrate del mese: transazioni manuali + prenotazioni (che nessuno registra
+  // a mano in finanze) cosi' la lista non resta vuota/ferma.
+  const prenItems2 = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===finMk2)
   const finE2 = finItems2.filter(f=>f.tipo==='entrata').reduce((s,f)=>s+Number(f.importo),0)
+    + prenItems2.reduce((s,p)=>s+Number(p.totale||0),0)
   const finU2 = finItems2.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
   const finS2 = finE2-finU2
 
@@ -546,7 +552,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           )}
 
           <div className="kpi-strip k4">
-            <div className="kpi v" style={{cursor:'pointer'}} onClick={()=>setModal('dettaglio-entrate')}><div className="kv">{fmt(entrMese)}</div><div className="kl">Entrate</div></div>
+            <div className="kpi v" style={{cursor:'pointer'}} onClick={()=>setModal('dettaglio-entrate')}><div className="kv">{fmt(entrMese)}</div><div className="kl">Entrate lorde</div><div style={{fontSize:8,color:'var(--grigio)',marginTop:2}}>netto {fmt(nettoMese)}</div></div>
             <div className="kpi r"><div className="kv">{fmt(uscMese)}</div><div className="kl">Uscite</div></div>
             <div className="kpi o"><div className="kv" style={{color:entrMese-uscMese>=0?'var(--verde)':'var(--rosso)'}}>{fmt(entrMese-uscMese)}</div><div className="kl">Saldo</div></div>
             <div className="kpi c"><div className="kv">{occPerc}%</div><div className="kl">Occup.</div></div>
@@ -705,17 +711,27 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               <div className="kpi o"><div className="kv" style={{color:finS2>=0?'var(--verde)':'var(--rosso)'}}>{fmt(finS2)}</div><div className="kl">Saldo</div></div>
             </div>
             <div className="card">
-              {finItems2.length===0
+              {finItems2.length===0 && prenItems2.length===0
                 ? <div className="empty" style={{padding:12}}><div className="emi">💶</div><p>Nessuna transazione</p></div>
-                : [...finItems2].sort((a,b)=>b.data.localeCompare(a.data)).map(f=>(
-                  <div key={f.id} className="ir">
-                    <div className={`iico ${f.tipo==='entrata'?'v':'r'}`}>{CAT_ICON[f.categoria]||'💶'}</div>
-                    <div className="ibody"><div className="iname">{f.descrizione}</div><div className="imeta">{fmtDate(f.data)} · <span className="pill">{f.categoria}</span></div></div>
-                    <div className={`iamt ${f.tipo==='entrata'?'v':'r'}`}>{f.tipo==='entrata'?'+':'-'}{fmtFull(f.importo)}</div>
-                    <button className="del" onClick={()=>db.deleteFinanza(f.id)}>🗑</button>
-                  </div>
-                ))}
+                : <>
+                  {[...prenItems2].sort((a,b)=>b.checkin.localeCompare(a.checkin)).map(p=>(
+                    <div key={'p-'+p.id} className="ir" style={{cursor:'pointer'}} onClick={()=>apriModificaPrenotazione(p)}>
+                      <div className="iico v">🏠</div>
+                      <div className="ibody"><div className="iname">{p.nome}</div><div className="imeta">{fmtDate(p.checkin)} · <span className="pill">prenotazione</span> · <span className={`badge ${piattaformaBadge(p.piattaforma)}`}>{piattaformaLabel(p.piattaforma)}</span></div></div>
+                      <div className="iamt v">+{fmtFull(p.totale)}</div>
+                    </div>
+                  ))}
+                  {[...finItems2].sort((a,b)=>b.data.localeCompare(a.data)).map(f=>(
+                    <div key={f.id} className="ir">
+                      <div className={`iico ${f.tipo==='entrata'?'v':'r'}`}>{CAT_ICON[f.categoria]||'💶'}</div>
+                      <div className="ibody"><div className="iname">{f.descrizione}</div><div className="imeta">{fmtDate(f.data)} · <span className="pill">{f.categoria}</span></div></div>
+                      <div className={`iamt ${f.tipo==='entrata'?'v':'r'}`}>{f.tipo==='entrata'?'+':'-'}{fmtFull(f.importo)}</div>
+                      <button className="del" onClick={()=>db.deleteFinanza(f.id)}>🗑</button>
+                    </div>
+                  ))}
+                </>}
             </div>
+            {prenItems2.length>0&&<div style={{fontSize:9,color:'var(--grigio)',textAlign:'center',marginTop:6}}>🏠 = entrata da prenotazione (tocca per modificarla)</div>}
           </>}
 
           {finTab==='bollette'&&<>
