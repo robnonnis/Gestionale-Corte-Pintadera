@@ -75,7 +75,18 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal) {
       d = new Date(d.getTime()+86400000)
     }
   })
-  return { items, dayMap }
+
+  // Giorni di turnover: check-out di una prenotazione e check-in di un'altra
+  // lo stesso giorno (cambio senza giorno cuscinetto per le pulizie).
+  const checkoutDates = {}
+  items.forEach(it => { (checkoutDates[it.checkout] ||= []).push(it) })
+  const turnoverDates = new Set()
+  items.forEach(it => {
+    const outs = checkoutDates[it.checkin]
+    if (outs && outs.some(o=>o!==it)) turnoverDates.add(it.checkin)
+  })
+
+  return { items, dayMap, turnoverDates }
 }
 
 export const occupancyLabel = it => {

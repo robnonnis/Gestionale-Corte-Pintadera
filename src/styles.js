@@ -151,6 +151,9 @@ body{font-family:'Inter',sans-serif;background:var(--sabbia);color:var(--pietra)
 .cd.occ-blocco{background:repeating-linear-gradient(45deg,rgba(139,115,85,.2),rgba(139,115,85,.2) 4px,transparent 4px,transparent 8px);color:var(--grigio);font-weight:600}
 .cd.occ-start{border-radius:4px 0 0 4px;box-shadow:inset 2px 0 0 currentColor}
 .cd.occ-end{border-radius:0 4px 4px 0;box-shadow:inset -2px 0 0 currentColor}
+.cd.occ-turnover{outline:2px solid var(--oro);outline-offset:-1px}
+.cd-turn{position:absolute;top:-4px;right:-4px;font-size:7px;background:var(--oro);color:var(--pietra);
+  border-radius:50%;width:11px;height:11px;display:flex;align-items:center;justify-content:center;line-height:1}
 
 /* Booking card */
 .bkc{background:white;border-radius:var(--rsm);padding:10px 12px;margin-bottom:7px;

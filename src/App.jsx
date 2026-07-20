@@ -354,6 +354,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     for(let day=1;day<=dim;day++){
       const ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0')
       const it=occ.dayMap[ds]; const isToday=ds===todayStr
+      const isTurnover=occ.turnoverDates.has(ds)
       let cls='cd'
       if(isToday) cls+=' today'
       else if(it){
@@ -362,7 +363,12 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         const dsNext=new Date(new Date(ds).getTime()+86400000).toISOString().slice(0,10)
         if(it.checkout===dsNext) cls+=' occ-end'
       }
-      days.push(<div key={day} className={cls} title={it?occupancyLabel(it):''}>{day}</div>)
+      if(isTurnover) cls+=' occ-turnover'
+      const onClick = it ? () => {
+        if (it.kind==='manuale') apriModificaPrenotazione(it.ref)
+        else if (it.tipo!=='blocco') apriDaIcal(it)
+      } : undefined
+      days.push(<div key={day} className={cls} style={onClick?{cursor:'pointer'}:{}} title={it?(occupancyLabel(it)+(isTurnover?' · turnover':'')):''} onClick={onClick}>{day}{isTurnover&&<span className="cd-turn">⇄</span>}</div>)
     }
     return <div className="cal-grid">{days}</div>
   }
@@ -570,6 +576,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               <span style={{color:'#003B95'}}>🔵 Booking</span>
               <span style={{color:'var(--verde)'}}>🟢 Diretto</span>
               <span>▦ Blocco/Ferie</span>
+              <span>⇄ Turnover</span>
             </div>
           </div>
 
@@ -621,6 +628,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             return <div className="card" style={{marginBottom:9}}>
               <div className="card-title"><span className="dot"/>Proiezione utili — {MESI[cm]}</div>
               <div style={{display:'flex',justifyContent:'space-around',textAlign:'center'}}>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenMese.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
                 <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{fmt(lordo)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Lordo</div></div>
                 <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600,color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmt(netto)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Netto stimato</div></div>
                 <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
@@ -1092,7 +1100,18 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div className="fg"><label className="fl">Check-in</label><input type="date" className="fi" value={prenForm.checkin} onChange={e=>setPrenForm(f=>({...f,checkin:e.target.value}))}/></div>
           <div className="fg"><label className="fl">Check-out</label><input type="date" className="fi" value={prenForm.checkout} onChange={e=>setPrenForm(f=>({...f,checkout:e.target.value}))}/></div>
         </div>
-        {prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:11}}>🌙 {diffDays(prenForm.checkout,prenForm.checkin)} notti</div>}
+        <div className="fg">
+          <label className="fl">Notti</label>
+          <input type="number" min="1" className="fi" style={{maxWidth:100}}
+            value={prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin ? diffDays(prenForm.checkout,prenForm.checkin) : ''}
+            placeholder="—"
+            onChange={e=>{
+              const n=parseInt(e.target.value)||1
+              const base=prenForm.checkin||todayStr
+              const co=new Date(base); co.setDate(co.getDate()+n)
+              setPrenForm(f=>({...f, checkin:base, checkout:co.toISOString().slice(0,10)}))
+            }}/>
+        </div>
         <div className="frow">
           <div className="fg"><label className="fl">Ospiti</label><input type="number" className="fi" value={prenForm.ospiti_num} onChange={e=>setPrenForm(f=>({...f,ospiti_num:e.target.value}))} min="1"/></div>
           <div className="fg"><label className="fl">Lordo / Totale (€)</label><input type="number" className="fi" value={prenForm.totale} onChange={e=>setPrenForm(f=>({...f,totale:e.target.value}))} step="0.01"/></div>
@@ -1110,9 +1129,17 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           const nettoNotte = notti>0 ? netto/notti : null
           const target = parseFloat(db.impostazioni.utile_min_giorno||50)
           const sottoSoglia = nettoNotte!==null && nettoNotte<target
-          return <div style={{fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:11}}>
-            Netto{commManuale?'':' stimato'}: <strong style={{color:sottoSoglia?'var(--rosso)':'var(--verde)'}}>{fmtFull(netto)}</strong>
-            {nettoNotte!==null&&<> · {fmtFull(nettoNotte)}/notte{sottoSoglia&&<> ⚠️ sotto i {fmt(target)}/notte</>}</>}
+          return <div className="fg">
+            <label className="fl">Netto (€){commManuale?'':' — stimato'}</label>
+            <input type="number" className="fi" step="0.01" value={netto.toFixed(2)}
+              style={sottoSoglia?{borderColor:'var(--rosso)',color:'var(--rosso)'}:{color:'var(--verde)'}}
+              onChange={e=>{
+                const newNetto=parseFloat(e.target.value)||0
+                setPrenForm(f=>({...f, commissione:(lordo-newNetto).toFixed(2)}))
+              }}/>
+            {nettoNotte!==null&&<div style={{fontSize:10,color:sottoSoglia?'var(--rosso)':'var(--grigio)',marginTop:4}}>
+              {fmtFull(nettoNotte)}/notte{sottoSoglia&&<> ⚠️ sotto i {fmt(target)}/notte</>}
+            </div>}
           </div>
         })()}
         <div className="frow">
@@ -1144,16 +1171,22 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           return voci.length===0
             ? <div className="empty" style={{padding:12}}><div className="emi">💶</div><p>Nessuna entrata questo mese</p></div>
             : <>
-              {voci.map(p=>(
-                <div key={p.id} className="ir">
+              {voci.map(p=>{
+                const notti = diffDays(p.checkout,p.checkin)
+                const comm = p.commissione>0 ? Number(p.commissione) : Number(p.totale||0)*taglioPiattaforma(p.piattaforma,p.checkin,db.impostazioni)/100
+                const netto = Number(p.totale||0)-comm
+                return <div key={p.id} className="ir">
                   <div className={`iico ${p.piattaforma==='airbnb'?'r':p.piattaforma==='booking'?'c':'v'}`}>🏠</div>
                   <div className="ibody">
                     <div className="iname">{p.nome}</div>
-                    <div className="imeta">{fmtDate(p.checkin)} → {fmtDate(p.checkout)} · <span className={`badge ${piattaformaBadge(p.piattaforma)}`}>{piattaformaLabel(p.piattaforma)}</span></div>
+                    <div className="imeta">{fmtDate(p.checkin)} → {fmtDate(p.checkout)} · {notti}n · <span className={`badge ${piattaformaBadge(p.piattaforma)}`}>{piattaformaLabel(p.piattaforma)}</span></div>
                   </div>
-                  <div className="iamt v">{fmtFull(p.totale)}</div>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
+                    <span className="iamt v">{fmtFull(p.totale)}</span>
+                    <span style={{fontSize:9,color:'var(--grigio)'}}>netto {fmtFull(netto)}</span>
+                  </div>
                 </div>
-              ))}
+              })}
               <div style={{display:'flex',justifyContent:'space-between',marginTop:10,paddingTop:9,borderTop:'1px solid var(--sabbia-scura)',fontSize:13,fontWeight:600}}>
                 <span>Totale</span><span style={{color:'var(--verde)'}}>{fmtFull(entrMese)}</span>
               </div>
