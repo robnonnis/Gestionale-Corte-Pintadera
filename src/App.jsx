@@ -6,7 +6,7 @@ import {
   MESI, GIORNI_BREVI, GIORNI_SETT, today, diffDays,
   fmt, fmtFull, fmtDate, monthKey,
   getUrgenza, CAT_ICON, BOLL_TIPI, PERIODO_COLOR,
-  piattaformaLabel, piattaformaBadge,
+  piattaformaLabel, piattaformaBadge, REGOLA_TIPO_LABEL,
   buildOccupancy, occupancyLabel, occupancyColorClass,
   prezzoMinimo, scomponi
 } from './utils'
@@ -59,7 +59,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'' }
+  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
   const emptyMan = { titolo:'', tipo:'ordinaria', data:today(), costo:'', fornitore:'', telefono:'', stato:'completato', prossima_data:'', note:'' }
@@ -134,7 +134,8 @@ export default function App() {
     setPrenForm({
       id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout, ospiti_num:p.ospiti_num||1,
       totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', piattaforma:p.piattaforma||'diretto',
-      stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||''
+      stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||'',
+      recensione_voto:p.recensione_voto??'', recensione_testo:p.recensione_testo||''
     })
     setModal('modal-prenotazione')
   }
@@ -153,7 +154,9 @@ export default function App() {
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
         acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0,
         piattaforma:prenForm.piattaforma, stato_pagamento:prenForm.stato_pagamento, note:prenForm.note,
-        ospite_id:prenForm.ospite_id||null, ical_uid:prenForm.ical_uid||null}
+        ospite_id:prenForm.ospite_id||null, ical_uid:prenForm.ical_uid||null,
+        recensione_voto:prenForm.recensione_voto!==''?parseFloat(prenForm.recensione_voto):null,
+        recensione_testo:prenForm.recensione_testo||null}
       if (prenForm.id) await db.updatePrenotazione(prenForm.id, payload)
       else await db.addPrenotazione(payload)
       toast.show('✅ Prenotazione salvata'); setModal(null); setPrenForm(emptyPren)
@@ -241,7 +244,7 @@ TARIFFE ATTUALI:
 ${db.prezzi.map(p=>`- ${p.nome_periodo} (${p.tipo_periodo}): Airbnb €${p.prezzo_airbnb} / Booking €${p.prezzo_booking} / Diretto €${p.prezzo_diretto} — min ${p.soggiorno_min} notti`).join('\n')}
 
 REGOLA DI MARGINE (obbligatoria): l'utile netto minimo desiderato è ${fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte dopo commissione OTA + cedolare secca.
-Taglio combinato attuale: Diretto ${db.impostazioni.taglio_diretto_pct||21}% (solo cedolare) · Booking ${db.impostazioni.taglio_booking_pct||39}% · Airbnb ${db.impostazioni.taglio_airbnb_prima_pct||24}% fino al ${fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi ${db.impostazioni.taglio_airbnb_dopo_pct||39}% (si allinea a Booking).
+Taglio combinato attuale: Diretto ${db.impostazioni.taglio_diretto_pct||21}% (solo cedolare) · Booking ${db.impostazioni.taglio_booking_pct||39}% · Airbnb ${db.impostazioni.taglio_airbnb_prima_pct||24}% fino al ${fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi ${db.impostazioni.taglio_airbnb_dopo_pct||36.5}% (nuova fee unica host-only 15,5% + cedolare).
 Ogni prezzo suggerito deve garantire questo utile minimo: prezzo_minimo = utile_min / (1 - taglio%).
 
 PRENOTAZIONI CONFERMATE PROSSIME:
@@ -407,6 +410,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <span className={`badge ${platB}`}>{platL}</span>
           {p.totale>0&&<span style={{fontFamily:'Cormorant Garamond,serif',fontSize:14,fontWeight:600,color:'var(--verde)'}}>{fmtFull(p.totale)}</span>}
           {p.stato_pagamento==='saldato'?<span className="badge b-ok">Saldato</span>:p.stato_pagamento==='acconto'?<span className="badge b-oggi">Acconto</span>:<span className="badge b-scaduto">Da saldare</span>}
+          {p.recensione_voto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {p.recensione_voto}/10</span>}
         </div>
         <div style={{display:'flex',gap:5,marginTop:8}}>
           <button className="btn bp bsm" onClick={e=>{e.stopPropagation();apriModificaPrenotazione(p)}}>✏️ Modifica</button>
@@ -422,7 +426,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:7}}>
           <div>
             <div style={{fontSize:15,fontWeight:700}}>{p.nome}</div>
-            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>{statusChip}<span className={`badge ${platB}`}>{platL}</span>{ospiteCollegato&&<span className="pill">{ospiteCollegato.nazionalita||'—'}</span>}</div>
+            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>{statusChip}<span className={`badge ${platB}`}>{platL}</span>{ospiteCollegato&&<span className="pill">{ospiteCollegato.nazionalita||'—'}</span>}{p.recensione_voto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {p.recensione_voto}/10</span>}</div>
           </div>
           <button className="del" onClick={e=>{e.stopPropagation();db.deletePrenotazione(p.id)}}>🗑</button>
         </div>
@@ -441,6 +445,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
         {p.netto>0&&p.commissione>0&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>Commissione: {fmtFull(p.commissione)} · Netto: {fmtFull(p.netto)}</div>}
         {p.note&&<div style={{fontSize:11,color:'var(--grigio)',marginTop:5,paddingTop:5,borderTop:'1px solid var(--sabbia-scura)'}}>📝 {p.note}</div>}
+        {p.recensione_testo&&<div style={{fontSize:11,color:'var(--grigio)',marginTop:3,fontStyle:'italic'}}>⭐ "{p.recensione_testo}"</div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:5,marginTop:10,paddingTop:8,borderTop:'1px solid var(--sabbia-scura)'}}>
           <button className="btn bp bsm bfull" onClick={e=>{e.stopPropagation();apriModificaPrenotazione(p)}}>✏️ Modifica</button>
           <button className="btn bs bsm bfull" onClick={e=>{e.stopPropagation();setSelectedPren(p);setModal('messaggi')}}>💬 Messaggi</button>
@@ -599,16 +604,14 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             </div>
           </div>
 
-          {/* ── Dettaglio prenotazioni (mese visualizzato) ─────────── */}
+          {/* ── Dettaglio prenotazioni (tutta la stagione, non solo il mese aperto nel mini-calendario) ─────────── */}
           {(() => {
-            const cy=calMonth.getFullYear(), cm=calMonth.getMonth()
-            const monthStart=new Date(cy,cm,1), monthEnd=new Date(cy,cm+1,1)
-            const detailItems=occ.items.filter(it=>new Date(it.checkin)<monthEnd && new Date(it.checkout)>monthStart)
+            const detailItems=occFuture
             return <>
               <div className="stitle">Dettaglio prenotazioni</div>
               <div className="card">
                 {detailItems.length===0
-                  ? <div className="empty" style={{padding:12}}><div className="emi">📅</div><p>Nessuna occupazione questo mese</p></div>
+                  ? <div className="empty" style={{padding:12}}><div className="emi">📅</div><p>Nessuna prenotazione futura</p></div>
                   : detailItems.map(it=>(
                     <div key={it.id} className="ir">
                       <div className={`iico ${it.tipo==='blocco'?'o':it.piattaforma==='airbnb'?'r':it.piattaforma==='booking'?'c':'v'}`}>{it.tipo==='blocco'?'🚫':'🏠'}</div>
@@ -630,14 +633,12 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             </>
           })()}
 
-          {/* ── Proiezione utili (mese visualizzato) ────────────────── */}
+          {/* ── Proiezione utili (tutte le prenotazioni future, non solo il mese visualizzato) ────────────────── */}
           {(() => {
-            const cy=calMonth.getFullYear(), cm=calMonth.getMonth()
-            const mk2 = cy+'-'+String(cm+1).padStart(2,'0')
-            const prenMese = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk2)
-            if (prenMese.length===0) return null
+            const prenStagione = db.prenotazioni.filter(p=>p.checkout>=todayStr)
+            if (prenStagione.length===0) return null
             let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
-            prenMese.forEach(p=>{
+            prenStagione.forEach(p=>{
               const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni)
               lordo+=s.lordo; commissione+=s.commissione; cedolare+=s.cedolare; netto+=s.netto
               notti+=diffDays(p.checkout,p.checkin)
@@ -645,9 +646,9 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             const target = notti*parseFloat(db.impostazioni.utile_min_giorno||50)
             const okTarget = netto>=target
             return <div className="card" style={{marginBottom:9}}>
-              <div className="card-title"><span className="dot"/>Proiezione utili — {MESI[cm]}</div>
+              <div className="card-title"><span className="dot"/>Proiezione utili — prossime prenotazioni</div>
               <div style={{display:'flex',justifyContent:'space-around',textAlign:'center',marginBottom:10}}>
-                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenMese.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
+                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenStagione.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
                 <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
               </div>
               <div style={{borderTop:'1px solid var(--sabbia-scura)',paddingTop:8}}>
@@ -670,6 +671,16 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {occFuture.length===0
             ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">📅</div><p>Nessuna prenotazione</p></div>
             : occFuture.map(it=><OccCard key={it.id} it={it}/>)}
+          {(() => {
+            const recensite = db.prenotazioni.filter(p=>p.recensione_voto!=null)
+            if (recensite.length===0) return null
+            const media = recensite.reduce((s,p)=>s+Number(p.recensione_voto),0)/recensite.length
+            return <div className="card" style={{marginBottom:9,display:'flex',justifyContent:'space-around',textAlign:'center'}}>
+              <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>⭐ {media.toFixed(1)}/10</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Media recensioni</div></div>
+              <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{recensite.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Recensioni</div></div>
+            </div>
+          })()}
+
           {db.prenotazioni.filter(p=>p.checkout<todayStr).length>0&&<>
             <div className="stitle">Storico</div>
             {db.prenotazioni.filter(p=>p.checkout<todayStr).sort((a,b)=>b.checkin.localeCompare(a.checkin)).slice(0,5).map(p=><BkCard key={p.id} p={p} compact/>)}
@@ -833,46 +844,37 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
 
           {prezziTab==='tariffe'&&<>
             <div className="infobox">
-              <strong>ℹ️ Utile minimo garantito: {fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/giorno</strong>
-              Dopo commissione OTA + cedolare. Airbnb passa da {db.impostazioni.taglio_airbnb_prima_pct||24}% a {db.impostazioni.taglio_airbnb_dopo_pct||39}% (allineata a Booking) dal {fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}. Sotto ogni prezzo trovi il minimo consigliato per quel periodo; ⚠️ se il prezzo attuale è più basso.
+              <strong>💡 Obiettivo: almeno {fmt(parseFloat(db.impostazioni.utile_min_giorno||50))} di utile netto a notte</strong>
+              Sotto ogni prezzo trovi il minimo che serve per garantirlo, dopo commissione della piattaforma e cedolare secca (21%, sempre sul prezzo intero). <strong>Diretto</strong>: nessuna commissione, solo cedolare. <strong>Booking</strong>: commissione 18%. <strong>Airbnb</strong>: 3% fino al {fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi <strong>15,5%</strong> (nuova fee unica a carico host, sostituisce il vecchio 3%+service fee ospite).
             </div>
-            <div className="card" style={{padding:'10px 10px 4px'}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:4,marginBottom:6}}>
-                <div style={{fontSize:9,fontWeight:700,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.04em'}}>Periodo</div>
-                <div style={{fontSize:9,fontWeight:700,color:'#C02228',textAlign:'center'}}>Airbnb</div>
-                <div style={{fontSize:9,fontWeight:700,color:'#003B95',textAlign:'center'}}>Booking</div>
-                <div style={{fontSize:9,fontWeight:700,color:'var(--grigio)',textAlign:'center'}}>Diretto</div>
-              </div>
-              {db.prezzi.filter(p=>p.attivo).map(p=>{
-                const pc=PERIODO_COLOR[p.tipo_periodo]||PERIODO_COLOR.bassa
-                const refDate=p.data_inizio||todayStr
-                const minA=prezzoMinimo('airbnb',refDate,db.impostazioni)
-                const minB=prezzoMinimo('booking',refDate,db.impostazioni)
-                const minD=prezzoMinimo('diretto',refDate,db.impostazioni)
-                return <div key={p.id} style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:4,padding:'8px 0',borderTop:'1px solid var(--sabbia-scura)',alignItems:'center'}}>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:600,color:'var(--pietra)'}}>{p.nome_periodo}</div>
-                    <div style={{display:'flex',gap:4,marginTop:2,flexWrap:'wrap'}}>
-                      <span className="badge" style={{background:pc.bg,color:pc.c}}>{pc.label}</span>
-                      {p.soggiorno_min>1&&<span className="pill">min {p.soggiorno_min}n</span>}
-                    </div>
-                    {p.data_inizio&&<div style={{fontSize:9,color:'var(--grigio)',marginTop:2}}>{fmtDate(p.data_inizio)}→{fmtDate(p.data_fine)}</div>}
-                  </div>
-                  <div style={{textAlign:'center'}}>
-                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'#C02228'}}>{p.prezzo_airbnb?`€${p.prezzo_airbnb}`:'—'}</div>
-                    <div style={{fontSize:8,color:p.prezzo_airbnb&&p.prezzo_airbnb<minA?'var(--rosso)':'var(--grigio)'}}>{p.prezzo_airbnb&&p.prezzo_airbnb<minA?'⚠️ ':''}min €{minA.toFixed(0)}</div>
-                  </div>
-                  <div style={{textAlign:'center'}}>
-                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'#003B95'}}>{p.prezzo_booking?`€${p.prezzo_booking}`:'—'}</div>
-                    <div style={{fontSize:8,color:p.prezzo_booking&&p.prezzo_booking<minB?'var(--rosso)':'var(--grigio)'}}>{p.prezzo_booking&&p.prezzo_booking<minB?'⚠️ ':''}min €{minB.toFixed(0)}</div>
-                  </div>
-                  <div style={{textAlign:'center'}}>
-                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:16,fontWeight:600,color:'var(--verde)'}}>{p.prezzo_diretto?`€${p.prezzo_diretto}`:'—'}</div>
-                    <div style={{fontSize:8,color:p.prezzo_diretto&&p.prezzo_diretto<minD?'var(--rosso)':'var(--grigio)'}}>{p.prezzo_diretto&&p.prezzo_diretto<minD?'⚠️ ':''}min €{minD.toFixed(0)}</div>
-                  </div>
+            {db.prezzi.filter(p=>p.attivo).map(p=>{
+              const pc=PERIODO_COLOR[p.tipo_periodo]||PERIODO_COLOR.bassa
+              const refDate=p.data_inizio||todayStr
+              const piattaforme=[
+                {k:'airbnb', label:'Airbnb', color:'#C02228', prezzo:p.prezzo_airbnb},
+                {k:'booking', label:'Booking', color:'#003B95', prezzo:p.prezzo_booking},
+                {k:'diretto', label:'Diretto', color:'var(--verde)', prezzo:p.prezzo_diretto},
+              ]
+              return <div key={p.id} className="card" style={{marginBottom:8}}>
+                <div style={{fontSize:13,fontWeight:600,color:'var(--pietra)'}}>{p.nome_periodo}</div>
+                <div style={{display:'flex',gap:4,marginTop:4,flexWrap:'wrap'}}>
+                  <span className="badge" style={{background:pc.bg,color:pc.c}}>{pc.label}</span>
+                  {p.soggiorno_min>1&&<span className="pill">min {p.soggiorno_min} notti</span>}
+                  {p.data_inizio&&<span className="pill">{fmtDate(p.data_inizio)} → {fmtDate(p.data_fine)}</span>}
                 </div>
-              })}
-            </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginTop:10}}>
+                  {piattaforme.map(pl=>{
+                    const min=prezzoMinimo(pl.k,refDate,db.impostazioni)
+                    const sotto=pl.prezzo && pl.prezzo<min
+                    return <div key={pl.k} style={{textAlign:'center',background:'var(--sabbia)',borderRadius:7,padding:'8px 4px'}}>
+                      <div style={{fontSize:9,color:pl.color,fontWeight:700,textTransform:'uppercase',letterSpacing:'.03em'}}>{pl.label}</div>
+                      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600,color:pl.prezzo?pl.color:'var(--grigio)',marginTop:2}}>{pl.prezzo?`€${pl.prezzo}`:'—'}</div>
+                      <div style={{fontSize:8,color:sotto?'var(--rosso)':'var(--grigio)',marginTop:3,fontWeight:sotto?700:400}}>{sotto?`⚠️ min €${min.toFixed(0)}`:`min €${min.toFixed(0)}`}</div>
+                    </div>
+                  })}
+                </div>
+              </div>
+            })}
             {db.prezzi.filter(p=>p.attivo).length===0&&<div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">📊</div><p>Nessuna tariffa</p></div>}
             <button className="btn bp bfull" style={{marginTop:6}} onClick={()=>setModal('modal-prezzo')}>+ Nuova tariffa</button>
 
@@ -899,7 +901,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                     <div style={{flex:1}}>
                       <div style={{fontSize:13,fontWeight:600}}>{r.nome}</div>
                       <div style={{display:'flex',gap:5,marginTop:4,flexWrap:'wrap'}}>
-                        <span className="pill">{r.tipo}</span>
+                        <span className="pill">{REGOLA_TIPO_LABEL[r.tipo]||r.tipo}</span>
                         <span className="badge" style={{background:r.modifica.startsWith('+')?'rgba(74,103,65,.12)':'rgba(192,57,43,.1)',color:r.modifica.startsWith('+')?'var(--verde)':'var(--rosso)',fontSize:11,padding:'2px 8px'}}>{r.modifica}</span>
                         {r.attiva?<span className="badge b-ok">Attiva</span>:<span className="badge pill">Inattiva</span>}
                       </div>
@@ -1198,6 +1200,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div className="fg"><label className="fl">Pagamento</label><select className="fs" value={prenForm.stato_pagamento} onChange={e=>setPrenForm(f=>({...f,stato_pagamento:e.target.value}))}><option value="da_saldare">Da saldare</option><option value="acconto">Acconto</option><option value="saldato">Saldato</option></select></div>
         </div>
         <div className="fg"><label className="fl">Note</label><input className="fi" value={prenForm.note} onChange={e=>setPrenForm(f=>({...f,note:e.target.value}))} placeholder="Telefono, richieste..."/></div>
+        <div className="frow">
+          <div className="fg"><label className="fl">Recensione ricevuta (0-10)</label><input type="number" min="0" max="10" step="0.5" className="fi" value={prenForm.recensione_voto} onChange={e=>setPrenForm(f=>({...f,recensione_voto:e.target.value}))} placeholder="es. 10"/></div>
+          <div className="fg"><label className="fl">Commento recensione</label><input className="fi" value={prenForm.recensione_testo} onChange={e=>setPrenForm(f=>({...f,recensione_testo:e.target.value}))} placeholder="opz."/></div>
+        </div>
         <div className="fg">
           <label className="fl">Ospite collegato (nazionalità, documento...)</label>
           <select className="fs" value={prenForm.ospite_id} onChange={e=>setPrenForm(f=>({...f,ospite_id:e.target.value}))}>

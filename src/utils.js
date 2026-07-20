@@ -39,6 +39,11 @@ export const PERIODO_COLOR = {
   picco: { bg:'rgba(184,92,56,.15)',  c:'var(--terracotta)',   label:'Picco' },
 }
 
+export const REGOLA_TIPO_LABEL = {
+  weekend:'Weekend', last_minute:'Last minute', advance:'Anticipo prenotazione',
+  evento:'Evento locale', occupazione:'Occupazione', durata:'Soggiorno lungo',
+}
+
 export const piattaformaLabel = p => p==='airbnb'?'Airbnb':p==='booking'?'Booking':'Diretto'
 export const piattaformaBadge = p => p==='airbnb'?'badge-airbnb':p==='booking'?'badge-booking':'badge-diretto'
 

@@ -45,6 +45,8 @@ create table if not exists prenotazioni (
   ical_uid        text unique,
   alloggiati_inviato boolean default false,
   checklist_ok    boolean default false,
+  recensione_voto numeric,        -- voto ricevuto dall'ospite (0-10)
+  recensione_testo text,
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
@@ -243,11 +245,12 @@ insert into impostazioni (chiave, valore) values
   ('host_nome', 'Roberta e Alessandro'),
   ('host_telefono', ''),
   -- Regole di pricing: taglio combinato (commissione OTA + cedolare secca) per
-  -- piattaforma. Dal 13/10/2026 Airbnb allinea le commissioni a Booking.
+  -- piattaforma. Dal 13/10/2026 Airbnb passa a una fee unica host-only 15,5%
+  -- (in vigore nella SEE), sostituendo il 3% host + service fee ospite.
   ('taglio_diretto_pct', '21'),
   ('taglio_booking_pct', '39'),
   ('taglio_airbnb_prima_pct', '24'),
-  ('taglio_airbnb_dopo_pct', '39'),
+  ('taglio_airbnb_dopo_pct', '36.5'),
   ('data_cambio_airbnb', '2026-10-13'),
   ('utile_min_giorno', '50')
 on conflict (chiave) do nothing;
