@@ -45,6 +45,7 @@ export default function App() {
   const [subModal, setSubModal] = useState(null)
   const [finMonth, setFinMonth] = useState(new Date())
   const [calMonth, setCalMonth] = useState(new Date())
+  const [openMonths, setOpenMonths] = useState(new Set())
   const [finTab, setFinTab] = useState('transazioni')
   const [bollTipo, setBollTipo] = useState('luce')
   const [bollFilter, setBollFilter] = useState('tutte')
@@ -100,6 +101,23 @@ export default function App() {
   const prenFuture = db.prenotazioni.filter(p=>p.checkout>=todayStr).sort((a,b)=>a.checkin.localeCompare(b.checkin))
   // Prenotazioni + eventi iCal non abbinati, in un unico ordine cronologico
   const occFuture = occ.items.filter(it=>it.checkout>=todayStr)
+  // Solo le occupazioni che ricadono nel mese mostrato dal mini-calendario
+  const calMk = monthKey(calMonth)
+  const calMonthStart = calMk+'-01'
+  const calMonthEnd = new Date(Date.UTC(calMonth.getFullYear(), calMonth.getMonth()+1, 0)).toISOString().slice(0,10)
+  const occMese = occ.items.filter(it=>it.checkin<=calMonthEnd && it.checkout>calMonthStart).sort((a,b)=>a.checkin.localeCompare(b.checkin))
+  // Riepilogo economico per ogni mese della stagione (passato e futuro),
+  // usato dall'accordion "Riepilogo per mese" — espandibile per vedere il
+  // dettaglio senza dover navigare il mini-calendario mese per mese.
+  const mesiStagione = (() => {
+    const byMonth = {}
+    occ.items.forEach(it => { (byMonth[it.checkin.slice(0,7)] ||= []).push(it) })
+    return Object.keys(byMonth).sort().map(mk => {
+      const items = byMonth[mk].sort((a,b)=>a.checkin.localeCompare(b.checkin))
+      const prenMese = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk)
+      return { mk, items, agg: aggregaPrenotazioni(prenMese, db.impostazioni) }
+    })
+  })()
   const prenOggiCI = db.prenotazioni.filter(p=>p.checkin===todayStr)
   const prenOggiCO = db.prenotazioni.filter(p=>p.checkout===todayStr)
   const prenInCorso = db.prenotazioni.filter(p=>p.checkin<=todayStr&&p.checkout>todayStr)
@@ -133,6 +151,7 @@ export default function App() {
     try { await db.addFinanza({...finForm, importo:parseFloat(finForm.importo)}); toast.show('✅ Salvata'); setModal(null); setFinForm(emptyFin) }
     catch(e) { toast.show('❌ '+e.message) }
   }
+  const toggleMonth = mk => setOpenMonths(s => { const n = new Set(s); n.has(mk) ? n.delete(mk) : n.add(mk); return n })
   const apriModificaPrenotazione = (p) => {
     setPrenForm({
       id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout, ospiti_num:p.ospiti_num||1,
@@ -643,10 +662,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             <button className="btn bp bsm" onClick={()=>{setPrenForm(emptyPren);setModal('modal-prenotazione')}}>+ Prenotazione</button>
           </div>
           {icalStatus&&<div style={{fontSize:10,color:'var(--grigio)',marginBottom:8,textAlign:'center'}}>{icalStatus}</div>}
-          <div className="stitle">Dettaglio prenotazioni</div>
-          {occFuture.length===0
-            ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">📅</div><p>Nessuna prenotazione</p></div>
-            : occFuture.map(it=><OccCard key={it.id} it={it} compact/>)}
+          <div className="stitle">Dettaglio prenotazioni — {MESI[calMonth.getMonth()]}</div>
+          {occMese.length===0
+            ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">📅</div><p>Nessuna prenotazione questo mese</p></div>
+            : occMese.map(it=><OccCard key={it.id} it={it} compact/>)}
           {(() => {
             const recensite = db.prenotazioni.filter(p=>p.recensione_voto!=null)
             if (recensite.length===0) return null
@@ -657,10 +676,29 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             </div>
           })()}
 
-          {db.prenotazioni.filter(p=>p.checkout<todayStr).length>0&&<>
-            <div className="stitle">Storico</div>
-            {db.prenotazioni.filter(p=>p.checkout<todayStr).sort((a,b)=>b.checkin.localeCompare(a.checkin)).slice(0,5).map(p=><BkCard key={p.id} p={p} compact/>)}
-          </>}
+          <div className="stitle">Riepilogo per mese</div>
+          {mesiStagione.length===0
+            ? <div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">🗓</div><p>Nessuna prenotazione</p></div>
+            : mesiStagione.map(({mk,items,agg})=>{
+              const [y,m] = mk.split('-')
+              const isOpen = openMonths.has(mk)
+              return <div key={mk} className="card" style={{marginBottom:9}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>toggleMonth(mk)}>
+                  <div className="card-title" style={{marginBottom:0}}><span className="dot"/>{MESI[Number(m)-1]} {y}</div>
+                  <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                    <span style={{fontSize:11,color:'var(--grigio)'}}>{items.length} pren.</span>
+                    <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:14,fontWeight:600,color:'var(--verde)'}}>{fmt(agg.netto)}</span>
+                    <span style={{fontSize:12,color:'var(--grigio)'}}>{isOpen?'▲':'▼'}</span>
+                  </div>
+                </div>
+                {isOpen && <div style={{marginTop:10}}>
+                  <RiepilogoEconomico agg={agg} titoloNetto="Netto mese"/>
+                  <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:7}}>
+                    {items.map(it=><OccCard key={it.id} it={it} compact/>)}
+                  </div>
+                </div>}
+              </div>
+            })}
         </>}
 
         {/* ── FINANZE ───────────────────────────────────────────── */}
