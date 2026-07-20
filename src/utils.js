@@ -123,3 +123,24 @@ export function prezzoMinimo(piattaforma, dataRif, impostazioni) {
   if (taglio >= 100) return Infinity
   return utileMin / (1 - taglio/100)
 }
+
+// Scompone un incasso lordo in commissione OTA + cedolare secca + netto finale.
+// La cedolare (taglio_diretto_pct, es. 21%) si applica sempre sul lordo a
+// prescindere dalla piattaforma; la commissione OTA e' il resto del taglio
+// combinato (o quella inserita a mano sulla prenotazione, se presente).
+export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impostazioni) {
+  const l = Number(lordo) || 0
+  const cedolarePct = parseFloat(impostazioni?.taglio_diretto_pct ?? '21') || 0
+  const cedolare = l * cedolarePct / 100
+  const stimata = !(Number(commissioneManuale) > 0)
+  let commissione
+  if (!stimata) {
+    commissione = Number(commissioneManuale) || 0
+  } else {
+    const taglioTotale = taglioPiattaforma(piattaforma, dataRif, impostazioni)
+    const otaPct = Math.max(taglioTotale - cedolarePct, 0)
+    commissione = l * otaPct / 100
+  }
+  const netto = l - commissione - cedolare
+  return { lordo:l, commissione, cedolare, netto, stimata }
+}

@@ -142,8 +142,9 @@ body{font-family:'Inter',sans-serif;background:var(--sabbia);color:var(--pietra)
   background:white;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;color:var(--pietra)}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
 .cdn{text-align:center;font-size:8px;font-weight:600;color:var(--grigio);padding:3px 0;text-transform:uppercase;letter-spacing:.04em}
-.cd{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:10px;
-  border-radius:4px;cursor:pointer;position:relative;color:var(--pietra)}
+.cd{min-height:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;gap:1px;
+  border-radius:4px;cursor:pointer;position:relative;color:var(--pietra);overflow:hidden;padding:2px 1px}
+.cd .cd-tag{font-size:6.5px;line-height:1.05;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;letter-spacing:-.01em}
 .cd.today{background:var(--terracotta);color:white;font-weight:700}
 .cd.occ-airbnb{background:rgba(255,90,95,.2);color:#C02228;font-weight:600}
 .cd.occ-booking{background:rgba(0,59,149,.16);color:#003B95;font-weight:600}

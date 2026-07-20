@@ -8,7 +8,7 @@ import {
   getUrgenza, CAT_ICON, BOLL_TIPI, PERIODO_COLOR,
   piattaformaLabel, piattaformaBadge,
   buildOccupancy, occupancyLabel, occupancyColorClass,
-  taglioPiattaforma, prezzoMinimo
+  prezzoMinimo, scomponi
 } from './utils'
 
 // ── Logo ─────────────────────────────────────────────────────────────────
@@ -368,7 +368,17 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         if (it.kind==='manuale') apriModificaPrenotazione(it.ref)
         else if (it.tipo!=='blocco') apriDaIcal(it)
       } : undefined
-      days.push(<div key={day} className={cls} style={onClick?{cursor:'pointer'}:{}} title={it?(occupancyLabel(it)+(isTurnover?' · turnover':'')):''} onClick={onClick}>{day}{isTurnover&&<span className="cd-turn">⇄</span>}</div>)
+      let tag=''
+      if(it && it.checkin===ds){
+        if(it.tipo==='blocco') tag='Ferie'
+        else if(it.kind==='manuale'){
+          const parts=(it.nome||'').trim().split(/\s+/).filter(Boolean)
+          tag = parts.length>1 ? `${parts[0]} ${parts[1][0]}.` : (parts[0]||'')
+        } else tag=`${piattaformaLabel(it.piattaforma)} ${diffDays(it.checkout,it.checkin)}n`
+      }
+      days.push(<div key={day} className={cls} style={onClick?{cursor:'pointer'}:{}} title={it?(occupancyLabel(it)+(isTurnover?' · turnover':'')):''} onClick={onClick}>
+        <span>{day}</span>{tag&&<span className="cd-tag">{tag}</span>}{isTurnover&&<span className="cd-turn">⇄</span>}
+      </div>)
     }
     return <div className="cal-grid">{days}</div>
   }
@@ -577,6 +587,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               <span style={{color:'var(--verde)'}}>🟢 Diretto</span>
               <span>▦ Blocco/Ferie</span>
               <span>⇄ Turnover</span>
+              <span style={{color:'var(--grigio)'}}>⬜ Libero</span>
             </div>
           </div>
 
@@ -617,21 +628,25 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             const mk2 = cy+'-'+String(cm+1).padStart(2,'0')
             const prenMese = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk2)
             if (prenMese.length===0) return null
-            let lordo=0, netto=0, notti=0
+            let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
             prenMese.forEach(p=>{
-              const t=Number(p.totale||0)
-              const comm = p.commissione>0 ? Number(p.commissione) : t*taglioPiattaforma(p.piattaforma,p.checkin,db.impostazioni)/100
-              lordo+=t; netto+=(t-comm); notti+=diffDays(p.checkout,p.checkin)
+              const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni)
+              lordo+=s.lordo; commissione+=s.commissione; cedolare+=s.cedolare; netto+=s.netto
+              notti+=diffDays(p.checkout,p.checkin)
             })
             const target = notti*parseFloat(db.impostazioni.utile_min_giorno||50)
             const okTarget = netto>=target
             return <div className="card" style={{marginBottom:9}}>
               <div className="card-title"><span className="dot"/>Proiezione utili — {MESI[cm]}</div>
-              <div style={{display:'flex',justifyContent:'space-around',textAlign:'center'}}>
+              <div style={{display:'flex',justifyContent:'space-around',textAlign:'center',marginBottom:10}}>
                 <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{prenMese.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Prenotaz.</div></div>
-                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{fmt(lordo)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Lordo</div></div>
-                <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600,color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmt(netto)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Netto stimato</div></div>
                 <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{notti}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Notti</div></div>
+              </div>
+              <div style={{borderTop:'1px solid var(--sabbia-scura)',paddingTop:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo</span><strong>{fmtFull(lordo)}</strong></div>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(commissione)}</span></div>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedolare)}</span></div>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>Netto stagione</span><strong style={{color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmtFull(netto)}</strong></div>
               </div>
               <div style={{fontSize:10,color:okTarget?'var(--verde)':'var(--rosso)',marginTop:8,textAlign:'center'}}>
                 {okTarget?'✅':'⚠️'} Obiettivo {fmt(target)} ({fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte) — {okTarget?'raggiunto':'non raggiunto'}
@@ -1108,8 +1123,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             onChange={e=>{
               const n=parseInt(e.target.value)||1
               const base=prenForm.checkin||todayStr
-              const co=new Date(base); co.setDate(co.getDate()+n)
-              setPrenForm(f=>({...f, checkin:base, checkout:co.toISOString().slice(0,10)}))
+              const co=new Date(new Date(base).getTime()+n*86400000).toISOString().slice(0,10)
+              setPrenForm(f=>({...f, checkin:base, checkout:co}))
             }}/>
         </div>
         <div className="frow">
@@ -1121,26 +1136,29 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div className="fg"><label className="fl">Commissione (€)</label><input type="number" className="fi" value={prenForm.commissione} onChange={e=>setPrenForm(f=>({...f,commissione:e.target.value}))} step="0.01"/></div>
         </div>
         {prenForm.totale&&(() => {
-          const lordo = parseFloat(prenForm.totale)||0
-          const commManuale = prenForm.commissione!==''
-          const commissione = commManuale ? (parseFloat(prenForm.commissione)||0) : lordo*taglioPiattaforma(prenForm.piattaforma, prenForm.checkin||todayStr, db.impostazioni)/100
-          const netto = lordo-commissione
           const notti = (prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin) ? diffDays(prenForm.checkout,prenForm.checkin) : 0
+          const {lordo, commissione, cedolare, netto, stimata} = scomponi(prenForm.piattaforma, prenForm.checkin||todayStr, prenForm.totale, prenForm.commissione, db.impostazioni)
           const nettoNotte = notti>0 ? netto/notti : null
           const target = parseFloat(db.impostazioni.utile_min_giorno||50)
           const sottoSoglia = nettoNotte!==null && nettoNotte<target
-          return <div className="fg">
-            <label className="fl">Netto (€){commManuale?'':' — stimato'}</label>
-            <input type="number" className="fi" step="0.01" value={netto.toFixed(2)}
-              style={sottoSoglia?{borderColor:'var(--rosso)',color:'var(--rosso)'}:{color:'var(--verde)'}}
-              onChange={e=>{
-                const newNetto=parseFloat(e.target.value)||0
-                setPrenForm(f=>({...f, commissione:(lordo-newNetto).toFixed(2)}))
-              }}/>
-            {nettoNotte!==null&&<div style={{fontSize:10,color:sottoSoglia?'var(--rosso)':'var(--grigio)',marginTop:4}}>
-              {fmtFull(nettoNotte)}/notte{sottoSoglia&&<> ⚠️ sotto i {fmt(target)}/notte</>}
-            </div>}
-          </div>
+          return <>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:8}}>
+              <div>{stimata?'Commissione stimata':'Commissione'}: <strong>{fmtFull(commissione)}</strong></div>
+              <div>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%): <strong>{fmtFull(cedolare)}</strong></div>
+            </div>
+            <div className="fg">
+              <label className="fl">Netto (€){stimata?' — stimato':''}</label>
+              <input type="number" className="fi" step="0.01" value={netto.toFixed(2)}
+                style={sottoSoglia?{borderColor:'var(--rosso)',color:'var(--rosso)'}:{color:'var(--verde)'}}
+                onChange={e=>{
+                  const newNetto=parseFloat(e.target.value)||0
+                  setPrenForm(f=>({...f, commissione:(lordo-cedolare-newNetto).toFixed(2)}))
+                }}/>
+              {nettoNotte!==null&&<div style={{fontSize:10,color:sottoSoglia?'var(--rosso)':'var(--grigio)',marginTop:4}}>
+                {fmtFull(nettoNotte)}/notte{sottoSoglia&&<> ⚠️ sotto i {fmt(target)}/notte</>}
+              </div>}
+            </div>
+          </>
         })()}
         <div className="frow">
           <div className="fg"><label className="fl">Piattaforma</label><select className="fs" value={prenForm.piattaforma} onChange={e=>setPrenForm(f=>({...f,piattaforma:e.target.value}))}><option value="diretto">Diretto</option><option value="airbnb">Airbnb</option><option value="booking">Booking.com</option><option value="altro">Altro</option></select></div>
@@ -1173,23 +1191,30 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             : <>
               {voci.map(p=>{
                 const notti = diffDays(p.checkout,p.checkin)
-                const comm = p.commissione>0 ? Number(p.commissione) : Number(p.totale||0)*taglioPiattaforma(p.piattaforma,p.checkin,db.impostazioni)/100
-                const netto = Number(p.totale||0)-comm
-                return <div key={p.id} className="ir">
+                const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni)
+                return <div key={p.id} className="ir" style={{flexWrap:'wrap'}}>
                   <div className={`iico ${p.piattaforma==='airbnb'?'r':p.piattaforma==='booking'?'c':'v'}`}>🏠</div>
                   <div className="ibody">
                     <div className="iname">{p.nome}</div>
                     <div className="imeta">{fmtDate(p.checkin)} → {fmtDate(p.checkout)} · {notti}n · <span className={`badge ${piattaformaBadge(p.piattaforma)}`}>{piattaformaLabel(p.piattaforma)}</span></div>
+                    <div style={{fontSize:9,color:'var(--grigio)',marginTop:3}}>Comm. {fmtFull(s.commissione)} · Cedolare {fmtFull(s.cedolare)}</div>
                   </div>
                   <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
                     <span className="iamt v">{fmtFull(p.totale)}</span>
-                    <span style={{fontSize:9,color:'var(--grigio)'}}>netto {fmtFull(netto)}</span>
+                    <span style={{fontSize:9,color:'var(--grigio)'}}>netto {fmtFull(s.netto)}</span>
                   </div>
                 </div>
               })}
-              <div style={{display:'flex',justifyContent:'space-between',marginTop:10,paddingTop:9,borderTop:'1px solid var(--sabbia-scura)',fontSize:13,fontWeight:600}}>
-                <span>Totale</span><span style={{color:'var(--verde)'}}>{fmtFull(entrMese)}</span>
-              </div>
+              {(() => {
+                let commTot=0, cedTot=0, nettoTot=0
+                voci.forEach(p=>{ const s=scomponi(p.piattaforma,p.checkin,p.totale,p.commissione,db.impostazioni); commTot+=s.commissione; cedTot+=s.cedolare; nettoTot+=s.netto })
+                return <div style={{marginTop:10,paddingTop:9,borderTop:'1px solid var(--sabbia-scura)'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12}}><span>Lordo</span><strong>{fmtFull(entrMese)}</strong></div>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12,color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(commTot)}</span></div>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12,color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedTot)}</span></div>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>Netto</span><span style={{color:'var(--verde)'}}>{fmtFull(nettoTot)}</span></div>
+                </div>
+              })()}
             </>
         })()}
       </Modal>
