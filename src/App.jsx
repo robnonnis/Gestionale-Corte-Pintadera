@@ -8,7 +8,7 @@ import {
   getUrgenza, CAT_ICON, BOLL_TIPI, PERIODO_COLOR,
   piattaformaLabel, piattaformaBadge, REGOLA_TIPO_LABEL,
   buildOccupancy, occupancyLabel, occupancyColorClass,
-  prezzoMinimo, scomponi, aggregaPrenotazioni
+  prezzoMinimo, scomponi, aggregaPrenotazioni, occupancyRate
 } from './utils'
 
 // ── Logo ─────────────────────────────────────────────────────────────────
@@ -127,17 +127,12 @@ export default function App() {
   // giorni occupati/giorni del mese, blocco/ferie inclusi) e ADR (lordo/notti).
   const mesiAnalisi = mesiStagione.map(({mk, agg}) => {
     const [y,m] = mk.split('-')
-    const daysInM = new Date(Number(y), Number(m), 0).getDate()
-    let occDays = 0
-    for (let d=1; d<=daysInM; d++) {
-      const ds = mk+'-'+String(d).padStart(2,'0')
-      if (occ.dayMap[ds]) occDays++
-    }
     return {
       mk, label: MESI[Number(m)-1].slice(0,3)+' '+y.slice(2),
       lordo: agg.lordo, netto: agg.netto, notti: agg.notti,
-      occPerc: Math.round(occDays/daysInM*100),
+      occPerc: occupancyRate(occ.dayMap, Number(y), Number(m)),
       adr: agg.notti>0 ? agg.lordo/agg.notti : 0,
+      adrNetto: agg.notti>0 ? agg.netto/agg.notti : 0,
     }
   })
   const platformTotali = (() => {
@@ -154,14 +149,8 @@ export default function App() {
     ]
   })()
 
-  // Occupazione mese corrente (manuali + iCal)
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()
-  let occupiedDays = 0
-  for (let d=1; d<=daysInMonth; d++) {
-    const ds = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(d).padStart(2,'0')
-    if (occ.dayMap[ds]) occupiedDays++
-  }
-  const occPerc = Math.round(occupiedDays/daysInMonth*100)
+  // Occupazione mese corrente (manuali + iCal, chiusure escluse)
+  const occPerc = occupancyRate(occ.dayMap, now.getFullYear(), now.getMonth()+1)
 
   const scadUrgenti = db.scadenze.filter(s=>!s.completata&&['scaduto','oggi'].includes(getUrgenza(s.data)))
   const bollUrgenti = db.bollette.filter(b=>b.stato!=='pagata'&&diffDays(b.scadenza,todayStr)<=7)
@@ -549,7 +538,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   const MonthlyBarChart = ({dati}) => {
     if (dati.length===0) return <div className="empty" style={{padding:16}}><div className="emi">📊</div><p>Nessun dato</p></div>
     const max = Math.max(1, ...dati.map(d=>d.lordo))
-    const W=320, H=120, gap=10
+    const W=320, H=120, gap=10, padTop=16
+    const usableH = H-padTop
     const gw = W/dati.length
     return <div>
       <div style={{display:'flex',gap:14,fontSize:10,color:'var(--grigio)',marginBottom:8}}>
@@ -559,11 +549,13 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:'100%',height:'auto'}}>
         {dati.map((d,i)=>{
           const bw=(gw-gap)/2
-          const hL=Math.max(2,d.lordo/max*H), hN=Math.max(2,d.netto/max*H)
+          const hL=Math.max(2,d.lordo/max*usableH), hN=Math.max(2,d.netto/max*usableH)
           const x0=i*gw+gap/2
           return <g key={d.mk}>
             <title>{d.label}: Lordo {fmtFull(d.lordo)} · Netto {fmtFull(d.netto)}</title>
+            <text x={x0+bw/2} y={H-hL-4} fontSize="8" fill="var(--grigio)" textAnchor="middle">{fmt(d.lordo)}</text>
             <path d={barPath(x0,H-hL,bw,hL,3)} fill="var(--terracotta-light)"/>
+            <text x={x0+bw+2+bw/2} y={H-hN-4} fontSize="8" fill="var(--grigio)" textAnchor="middle">{fmt(d.netto)}</text>
             <path d={barPath(x0+bw+2,H-hN,bw,hN,3)} fill="var(--terracotta)"/>
             <text x={x0+bw} y={H+13} fontSize="8" fill="var(--grigio)" textAnchor="middle">{d.label}</text>
           </g>
@@ -572,29 +564,38 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     </div>
   }
 
-  // ── Grafico a linea, una serie (Analisi: occupazione o ADR) ───────────
-  const MonthlyLineChart = ({dati, fmtVal, color='var(--terracotta)', domain}) => {
+  // ── Grafico a linea, una o piu' serie (Analisi: occupazione o ADR) ────
+  const MonthlyLineChart = ({dati, series, fmtVal, domain}) => {
     if (dati.length===0) return <div className="empty" style={{padding:16}}><div className="emi">📈</div><p>Nessun dato</p></div>
-    const vals = dati.map(d=>d.value)
-    const lo = domain ? domain[0] : Math.min(...vals)
-    const hi = domain ? domain[1] : Math.max(...vals)
+    const allVals = series.flatMap(s=>dati.map(d=>d[s.key]))
+    const lo = domain ? domain[0] : Math.min(...allVals)
+    const hi = domain ? domain[1] : Math.max(...allVals)
     const range = Math.max(1e-6, hi-lo)
-    const W=320, H=100, padTop=14, padBot=16
+    const W=320, H=110, padTop=16, padBot=16
     const n=dati.length
     const x = i => n<=1 ? W/2 : i/(n-1)*W
     const y = v => padTop + (1-(v-lo)/range)*(H-padTop-padBot)
-    const pts = dati.map((d,i)=>`${x(i)},${y(d.value)}`).join(' ')
-    return <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:'100%',height:'auto'}}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="2"/>
-      {dati.map((d,i)=>(
-        <g key={d.mk}>
-          <title>{d.label}: {fmtVal(d.value)}</title>
-          <circle cx={x(i)} cy={y(d.value)} r="4" fill={color}/>
-          <text x={x(i)} y={y(d.value)-8} fontSize="8" fill="var(--grigio)" textAnchor="middle">{fmtVal(d.value)}</text>
-          <text x={x(i)} y={H+13} fontSize="8" fill="var(--grigio)" textAnchor="middle">{d.label}</text>
-        </g>
-      ))}
-    </svg>
+    return <div>
+      {series.length>1 && <div style={{display:'flex',gap:14,fontSize:10,color:'var(--grigio)',marginBottom:8}}>
+        {series.map(s=><span key={s.key}><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:s.color,marginRight:4}}/>{s.label}</span>)}
+      </div>}
+      <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:'100%',height:'auto'}}>
+        {series.map(s=>{
+          const pts = dati.map((d,i)=>`${x(i)},${y(d[s.key])}`).join(' ')
+          return <g key={s.key}>
+            <polyline points={pts} fill="none" stroke={s.color} strokeWidth="2"/>
+            {dati.map((d,i)=>(
+              <g key={s.key+d.mk}>
+                <title>{d.label} — {s.label}: {fmtVal(d[s.key])}</title>
+                <circle cx={x(i)} cy={y(d[s.key])} r="4" fill={s.color}/>
+                <text x={x(i)} y={y(d[s.key])-8} fontSize="8" fill="var(--grigio)" textAnchor="middle">{fmtVal(d[s.key])}</text>
+              </g>
+            ))}
+          </g>
+        })}
+        {dati.map((d,i)=><text key={'lbl-'+d.mk} x={x(i)} y={H+13} fontSize="8" fill="var(--grigio)" textAnchor="middle">{d.label}</text>)}
+      </svg>
+    </div>
   }
 
   // ── Barre orizzontali per piattaforma (Analisi) ───────────────────────
@@ -1244,11 +1245,12 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           </div>
           <div className="card" style={{marginBottom:9}}>
             <div className="card-title"><span className="dot"/>Occupazione</div>
-            <MonthlyLineChart dati={mesiAnalisi.map(d=>({mk:d.mk,label:d.label,value:d.occPerc}))} fmtVal={v=>v+'%'} domain={[0,100]}/>
+            <div style={{fontSize:10,color:'var(--grigio)',marginBottom:6}}>Chiusure per pulizie escluse, sia dalle notti vendute che da quelle disponibili</div>
+            <MonthlyLineChart dati={mesiAnalisi.map(d=>({mk:d.mk,label:d.label,value:d.occPerc}))} series={[{key:'value',label:'Occupazione',color:'var(--terracotta)'}]} fmtVal={v=>v+'%'} domain={[0,100]}/>
           </div>
           <div className="card" style={{marginBottom:9}}>
             <div className="card-title"><span className="dot"/>Prezzo medio a notte (ADR)</div>
-            <MonthlyLineChart dati={mesiAnalisi.map(d=>({mk:d.mk,label:d.label,value:d.adr}))} fmtVal={v=>fmt(v)} color="var(--oro)"/>
+            <MonthlyLineChart dati={mesiAnalisi.map(d=>({mk:d.mk,label:d.label,adr:d.adr,adrNetto:d.adrNetto}))} series={[{key:'adr',label:'ADR lordo',color:'var(--terracotta-light)'},{key:'adrNetto',label:'ADR netto',color:'var(--terracotta)'}]} fmtVal={v=>fmt(v)}/>
           </div>
           <div className="card">
             <div className="card-title"><span className="dot"/>Ripartizione per piattaforma</div>

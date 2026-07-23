@@ -156,6 +156,23 @@ export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impost
   return { lordo:l, commissione, cedolare, netto, stimata }
 }
 
+// Percentuale di occupazione di un mese: notti vendute (prenotazioni reali,
+// manuali o iCal) sul totale delle notti *disponibili*, cioe' escludendo dal
+// conteggio le chiusure manuali (blocco/ferie per pulizie) sia dal numeratore
+// che dal denominatore — una chiusura non e' una notte "vuota" da riempire,
+// e' una notte che l'host ha gia' deciso di non vendere.
+export function occupancyRate(dayMap, year, month) {
+  const daysInMonth = new Date(year, month, 0).getDate()
+  let occupate = 0, chiuse = 0
+  for (let d=1; d<=daysInMonth; d++) {
+    const ds = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    const it = dayMap[ds]
+    if (it) { if (it.tipo==='blocco') chiuse++; else occupate++ }
+  }
+  const disponibili = daysInMonth - chiuse
+  return disponibili > 0 ? Math.round(occupate/disponibili*100) : 0
+}
+
 // Aggrega piu' prenotazioni in un unico riepilogo economico (lordo, commissioni,
 // cedolare, netto, notti, conteggio). Unico posto che somma questi numeri:
 // usato da Home, Prenotazioni, Finanze — cosi' il calcolo resta uno solo.
