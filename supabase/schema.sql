@@ -228,6 +228,21 @@ create table if not exists prenotazioni_ical (
 );
 
 -- ============================================================
+-- CHIUSURE_MANUALI — chiusure segnate dall'host, per intervallo di date
+-- (non per uid iCal): Booking rigenera l'uid ogni volta che una chiusura
+-- viene modificata sul suo calendario, e il sync cancella la vecchia riga
+-- di prenotazioni_ical perdendone il flag chiusura_manuale. Questa tabella
+-- sopravvive al cambio uid perche' ricorda l'intervallo di date, non l'evento.
+-- ============================================================
+create table if not exists chiusure_manuali (
+  id            uuid primary key default gen_random_uuid(),
+  data_inizio   date not null,
+  data_fine     date not null,       -- esclusa, come per prenotazioni_ical
+  note          text,
+  creato_il     timestamptz not null default now()
+);
+
+-- ============================================================
 -- DATI DEFAULT
 -- ============================================================
 
@@ -358,7 +373,7 @@ on conflict do nothing;
 do $$ declare t text; begin
   foreach t in array array['ospiti','prenotazioni','finanze','bollette','scadenze',
     'prezzi','regole_prezzo','checklist_template','checklist_istanze',
-    'manutenzioni','inventario','documenti','impostazioni']
+    'manutenzioni','inventario','documenti','impostazioni','chiusure_manuali']
   loop
     execute format('alter table %I enable row level security', t);
     execute format('

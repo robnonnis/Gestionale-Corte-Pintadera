@@ -52,13 +52,19 @@ export const piattaformaBadge = p => p==='airbnb'?'badge-airbnb':p==='booking'?'
 // Airbnb/Booking (tabella prenotazioni_ical), evitando i duplicati: se un
 // evento iCal coincide (per ical_uid o per date+piattaforma) con una riga
 // di `prenotazioni`, vince quella manuale perché ha nome e importo.
-export function buildOccupancy(prenotazioni, prenotazioniIcal) {
+export function buildOccupancy(prenotazioni, prenotazioniIcal, chiusureManuali) {
   const matchedUids = new Set(prenotazioni.filter(p=>p.ical_uid).map(p=>p.ical_uid))
   const icalOnly = (prenotazioniIcal||[]).filter(ev => {
     if (matchedUids.has(ev.uid)) return false
     const dup = prenotazioni.some(p=>p.checkin===ev.data_inizio && p.checkout===ev.data_fine && p.piattaforma===ev.source)
     return !dup
   })
+  // Booking rigenera l'uid iCal ogni volta che una chiusura viene modificata
+  // sul suo calendario: la vecchia riga (con chiusura_manuale) viene cancellata
+  // dal sync e ne arriva una nuova senza il flag. Per non doverle rimarcare a
+  // ogni cambio, chiusure_manuali ricorda gli intervalli per data (non per uid)
+  // e sopravvive al cambio uid.
+  const inChiusuraNota = ev => (chiusureManuali||[]).some(c => ev.data_inizio<c.data_fine && ev.data_fine>c.data_inizio)
   const items = [
     ...prenotazioni.map(p => ({
       id:'m-'+p.id, kind:'manuale', checkin:p.checkin, checkout:p.checkout,
@@ -67,7 +73,7 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal) {
     ...icalOnly.map(ev => ({
       id:'i-'+ev.uid, kind:'ical', checkin:ev.data_inizio, checkout:ev.data_fine,
       piattaforma:ev.source, nome:null, totale:null,
-      tipo: ev.chiusura_manuale ? 'blocco' : ev.tipo, ref:ev
+      tipo: (ev.chiusura_manuale || inChiusuraNota(ev)) ? 'blocco' : ev.tipo, ref:ev
     })),
   ].sort((a,b)=>a.checkin.localeCompare(b.checkin))
 

@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 
 export function useDb() {
   const [data, setData] = useState({
-    prenotazioni: [], prenotazioniIcal: [], ospiti: [], finanze: [], bollette: [],
+    prenotazioni: [], prenotazioniIcal: [], chiusureManuali: [], ospiti: [], finanze: [], bollette: [],
     scadenze: [], prezzi: [], regole: [], checklist: [],
     manutenzioni: [], inventario: [], documenti: [], impostazioni: {}
   })
@@ -24,9 +24,10 @@ export function useDb() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [pren, prenIcal, osp, fin, boll, scad, prz, reg, chk, man, inv, doc, imp] = await Promise.all([
+      const [pren, prenIcal, chiu, osp, fin, boll, scad, prz, reg, chk, man, inv, doc, imp] = await Promise.all([
         supabase.from('prenotazioni').select('*').order('checkin'),
         supabase.from('prenotazioni_ical').select('*').order('data_inizio'),
+        supabase.from('chiusure_manuali').select('*').order('data_inizio'),
         supabase.from('ospiti').select('*').order('nome'),
         supabase.from('finanze').select('*').order('data', { ascending: false }),
         supabase.from('bollette').select('*').order('scadenza', { ascending: false }),
@@ -42,7 +43,7 @@ export function useDb() {
       const impostazioni = {}
       ;(imp.data || []).forEach(i => { impostazioni[i.chiave] = i.valore })
       const next = {
-        prenotazioni: pren.data || [], prenotazioniIcal: prenIcal.data || [], ospiti: osp.data || [],
+        prenotazioni: pren.data || [], prenotazioniIcal: prenIcal.data || [], chiusureManuali: chiu.data || [], ospiti: osp.data || [],
         finanze: fin.data || [], bollette: boll.data || [],
         scadenze: scad.data || [], prezzi: prz.data || [],
         regole: reg.data || [], checklist: chk.data || [],
@@ -53,7 +54,7 @@ export function useDb() {
       Object.entries(next).forEach(([k,v]) => local.save(k, v))
     } catch (e) {
       console.warn('Offline, uso cache', e)
-      const keys = ['prenotazioni','prenotazioniIcal','ospiti','finanze','bollette','scadenze','prezzi','regole','checklist','manutenzioni','inventario','documenti','impostazioni']
+      const keys = ['prenotazioni','prenotazioniIcal','chiusureManuali','ospiti','finanze','bollette','scadenze','prezzi','regole','checklist','manutenzioni','inventario','documenti','impostazioni']
       const cached = {}
       keys.forEach(k => { cached[k] = local.load(k, k === 'impostazioni' ? {} : []) })
       setData(cached)
@@ -146,6 +147,20 @@ export function useDb() {
       return { ...prev, prenotazioniIcal: next }
     })
     return d
+  }
+
+  // Segna/rimuovi una chiusura per intervallo di date (non per uid): Booking
+  // rigenera l'uid ogni volta che la chiusura viene modificata sul suo
+  // calendario, cancellando il flag sulla vecchia riga — questa tabella
+  // sopravvive al cambio uid perche' ricorda l'intervallo, non l'evento.
+  const segnaChiusura = async (uid, checkin, checkout, chiusura) => {
+    await toggleChiusuraIcal(uid, chiusura)
+    if (chiusura) {
+      await insert('chiusure_manuali', 'chiusureManuali', { data_inizio: checkin, data_fine: checkout }, (a,b)=>a.data_inizio.localeCompare(b.data_inizio))
+    } else {
+      const daRimuovere = data.chiusureManuali.filter(c => checkin<c.data_fine && checkout>c.data_inizio)
+      for (const c of daRimuovere) await remove('chiusure_manuali', 'chiusureManuali', c.id)
+    }
   }
 
   // ── OSPITI ────────────────────────────────────────────────────────
@@ -257,7 +272,7 @@ export function useDb() {
     addPrezzo, updatePrezzo, deletePrezzo,
     addRegola, updateRegola, deleteRegola,
     initChecklist, getChecklist, toggleChecklist,
-    toggleChiusuraIcal,
+    toggleChiusuraIcal, segnaChiusura,
     addManutenzione, updateManutenzione, deleteManutenzione,
     addInventario, updateInventario, deleteInventario,
     addDocumento, updateDocumento, deleteDocumento,

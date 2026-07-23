@@ -85,7 +85,7 @@ export default function App() {
   const giornoLbl = GIORNI_SETT[now.getDay()].slice(0,3).toUpperCase() + ' · ' + now.toLocaleDateString('it-IT',{month:'short',year:'2-digit'}).toUpperCase()
 
   // ── Occupazione unificata (prenotazioni manuali + eventi iCal) ────────
-  const occ = buildOccupancy(db.prenotazioni, db.prenotazioniIcal)
+  const occ = buildOccupancy(db.prenotazioni, db.prenotazioniIcal, db.chiusureManuali)
 
   // ── KPI ─────────────────────────────────────────────────────────────
   const mk = monthKey(now)
@@ -497,7 +497,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         <div style={{fontSize:11,color:'var(--grigio)',marginTop:7}}>📅 {fmtDate(it.checkin)} → {fmtDate(it.checkout)} · {nights}n</div>
         <div style={{display:'flex',gap:5,marginTop:8}}>
           {!isBlocco&&<button className="btn bp bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>apriDaIcal(it)}>✏️ Aggiungi dettagli</button>}
-          <button className="btn bs bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>db.toggleChiusuraIcal(it.ref.uid, !it.ref.chiusura_manuale)}>
+          <button className="btn bs bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>db.segnaChiusura(it.ref.uid, it.checkin, it.checkout, !isBlocco)}>
             {isBlocco?'↩ Segna come prenotazione':'🚫 Segna come chiusura'}
           </button>
         </div>
