@@ -122,6 +122,38 @@ export default function App() {
   const prenOggiCO = db.prenotazioni.filter(p=>p.checkout===todayStr)
   const prenInCorso = db.prenotazioni.filter(p=>p.checkin<=todayStr&&p.checkout>todayStr)
 
+  // ── Dati per la sezione Analisi (grafici): stessa base di mesiStagione,
+  // con in piu' occupazione % (stessa formula del KPI Home/Prenotazioni:
+  // giorni occupati/giorni del mese, blocco/ferie inclusi) e ADR (lordo/notti).
+  const mesiAnalisi = mesiStagione.map(({mk, agg}) => {
+    const [y,m] = mk.split('-')
+    const daysInM = new Date(Number(y), Number(m), 0).getDate()
+    let occDays = 0
+    for (let d=1; d<=daysInM; d++) {
+      const ds = mk+'-'+String(d).padStart(2,'0')
+      if (occ.dayMap[ds]) occDays++
+    }
+    return {
+      mk, label: MESI[Number(m)-1].slice(0,3)+' '+y.slice(2),
+      lordo: agg.lordo, netto: agg.netto, notti: agg.notti,
+      occPerc: Math.round(occDays/daysInM*100),
+      adr: agg.notti>0 ? agg.lordo/agg.notti : 0,
+    }
+  })
+  const platformTotali = (() => {
+    const t = { airbnb:{lordo:0,count:0}, booking:{lordo:0,count:0}, diretto:{lordo:0,count:0} }
+    db.prenotazioni.forEach(p => {
+      const k = t[p.piattaforma] ? p.piattaforma : 'diretto'
+      t[k].lordo += Number(p.totale)||0
+      t[k].count += 1
+    })
+    return [
+      { label:'Airbnb', color:'#C0392B', value:t.airbnb.lordo, sub:`${fmt(t.airbnb.lordo)} · ${t.airbnb.count} pren.` },
+      { label:'Booking', color:'#003B95', value:t.booking.lordo, sub:`${fmt(t.booking.lordo)} · ${t.booking.count} pren.` },
+      { label:'Diretto', color:'#4A6741', value:t.diretto.lordo, sub:`${fmt(t.diretto.lordo)} · ${t.diretto.count} pren.` },
+    ]
+  })()
+
   // Occupazione mese corrente (manuali + iCal)
   const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()
   let occupiedDays = 0
@@ -506,6 +538,82 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   }
 
   const OccCard = ({it, compact=false}) => it.kind==='manuale' ? <BkCard p={it.ref} compact={compact}/> : <IcalCard it={it} compact={compact}/>
+
+  // Percorso di una barra con angoli arrotondati solo in alto (ancorata alla base)
+  const barPath = (x,y,w,h,r) => {
+    const rr = Math.max(0, Math.min(r, h/2, w/2))
+    return `M${x},${y+h} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+w-rr},${y} Q${x+w},${y} ${x+w},${y+rr} L${x+w},${y+h} Z`
+  }
+
+  // ── Grafico a barre Lordo/Netto per mese (Analisi) ────────────────────
+  const MonthlyBarChart = ({dati}) => {
+    if (dati.length===0) return <div className="empty" style={{padding:16}}><div className="emi">📊</div><p>Nessun dato</p></div>
+    const max = Math.max(1, ...dati.map(d=>d.lordo))
+    const W=320, H=120, gap=10
+    const gw = W/dati.length
+    return <div>
+      <div style={{display:'flex',gap:14,fontSize:10,color:'var(--grigio)',marginBottom:8}}>
+        <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'var(--terracotta-light)',marginRight:4}}/>Lordo</span>
+        <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'var(--terracotta)',marginRight:4}}/>Netto</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:'100%',height:'auto'}}>
+        {dati.map((d,i)=>{
+          const bw=(gw-gap)/2
+          const hL=Math.max(2,d.lordo/max*H), hN=Math.max(2,d.netto/max*H)
+          const x0=i*gw+gap/2
+          return <g key={d.mk}>
+            <title>{d.label}: Lordo {fmtFull(d.lordo)} · Netto {fmtFull(d.netto)}</title>
+            <path d={barPath(x0,H-hL,bw,hL,3)} fill="var(--terracotta-light)"/>
+            <path d={barPath(x0+bw+2,H-hN,bw,hN,3)} fill="var(--terracotta)"/>
+            <text x={x0+bw} y={H+13} fontSize="8" fill="var(--grigio)" textAnchor="middle">{d.label}</text>
+          </g>
+        })}
+      </svg>
+    </div>
+  }
+
+  // ── Grafico a linea, una serie (Analisi: occupazione o ADR) ───────────
+  const MonthlyLineChart = ({dati, fmtVal, color='var(--terracotta)', domain}) => {
+    if (dati.length===0) return <div className="empty" style={{padding:16}}><div className="emi">📈</div><p>Nessun dato</p></div>
+    const vals = dati.map(d=>d.value)
+    const lo = domain ? domain[0] : Math.min(...vals)
+    const hi = domain ? domain[1] : Math.max(...vals)
+    const range = Math.max(1e-6, hi-lo)
+    const W=320, H=100, padTop=14, padBot=16
+    const n=dati.length
+    const x = i => n<=1 ? W/2 : i/(n-1)*W
+    const y = v => padTop + (1-(v-lo)/range)*(H-padTop-padBot)
+    const pts = dati.map((d,i)=>`${x(i)},${y(d.value)}`).join(' ')
+    return <svg viewBox={`0 0 ${W} ${H+16}`} style={{width:'100%',height:'auto'}}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2"/>
+      {dati.map((d,i)=>(
+        <g key={d.mk}>
+          <title>{d.label}: {fmtVal(d.value)}</title>
+          <circle cx={x(i)} cy={y(d.value)} r="4" fill={color}/>
+          <text x={x(i)} y={y(d.value)-8} fontSize="8" fill="var(--grigio)" textAnchor="middle">{fmtVal(d.value)}</text>
+          <text x={x(i)} y={H+13} fontSize="8" fill="var(--grigio)" textAnchor="middle">{d.label}</text>
+        </g>
+      ))}
+    </svg>
+  }
+
+  // ── Barre orizzontali per piattaforma (Analisi) ───────────────────────
+  const PlatformBarChart = ({dati}) => {
+    const max = Math.max(1, ...dati.map(d=>d.value))
+    return <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {dati.map(d=>(
+        <div key={d.label}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:3}}>
+            <span style={{color:d.color,fontWeight:600}}>{d.label}</span>
+            <span style={{color:'var(--grigio)'}}>{d.sub}</span>
+          </div>
+          <div style={{background:'var(--sabbia)',borderRadius:6,height:10,overflow:'hidden'}}>
+            <div style={{width:`${Math.max(2,d.value/max*100)}%`,height:'100%',background:d.color,borderRadius:6}}/>
+          </div>
+        </div>
+      ))}
+    </div>
+  }
 
   // ── Riepilogo economico condiviso (Lordo/Commissioni/Cedolare/Netto) ──
   // Un solo posto che disegna questo blocco: usato in Prenotazioni, Finanze
@@ -1127,6 +1235,26 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             </>
           })()}
         </>}
+
+        {/* ── ANALISI ───────────────────────────────────────────── */}
+        {!db.loading && screen==='analisi' && <>
+          <div className="card" style={{marginBottom:9}}>
+            <div className="card-title"><span className="dot"/>Entrate per mese</div>
+            <MonthlyBarChart dati={mesiAnalisi}/>
+          </div>
+          <div className="card" style={{marginBottom:9}}>
+            <div className="card-title"><span className="dot"/>Occupazione</div>
+            <MonthlyLineChart dati={mesiAnalisi.map(d=>({mk:d.mk,label:d.label,value:d.occPerc}))} fmtVal={v=>v+'%'} domain={[0,100]}/>
+          </div>
+          <div className="card" style={{marginBottom:9}}>
+            <div className="card-title"><span className="dot"/>Prezzo medio a notte (ADR)</div>
+            <MonthlyLineChart dati={mesiAnalisi.map(d=>({mk:d.mk,label:d.label,value:d.adr}))} fmtVal={v=>fmt(v)} color="var(--oro)"/>
+          </div>
+          <div className="card">
+            <div className="card-title"><span className="dot"/>Ripartizione per piattaforma</div>
+            <PlatformBarChart dati={platformTotali}/>
+          </div>
+        </>}
       </main>
 
       {/* ── NAV ──────────────────────────────────────────────────── */}
@@ -1136,6 +1264,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           ['prenotazioni','Prenotaz.',<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>],
           ['finanze','Finanze',<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>],
           ['prezzi','Prezzi',<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>],
+          ['analisi','Analisi',<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>],
           ['gestione','Gestione',<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>],
         ].map(([id,lbl,icon])=>(
           <button key={id} className={`nb${screen===id?' active':''}`} onClick={()=>setScreen(id)}>
