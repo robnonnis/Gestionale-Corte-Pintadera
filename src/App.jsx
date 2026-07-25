@@ -118,6 +118,19 @@ export default function App() {
       return { mk, items, agg: aggregaPrenotazioni(prenMese, db.impostazioni) }
     })
   })()
+  // Prenotazioni completate da un evento iCal (nome/importo aggiunti a mano)
+  // che non risultano piu' coperte da NESSUN evento sincronizzato della
+  // stessa piattaforma, nemmeno con un uid diverso: una volta completate,
+  // il sync non le confronta mai piu' con Booking/Airbnb (aggiorna solo
+  // prenotazioni_ical), quindi se il cliente cancella l'host non lo scopre
+  // finche' non controlla a mano. Qui la copertura si controlla per
+  // intervallo di date (non per uid) perche' Booking spesso rigenera/
+  // riaccorpa gli uid senza che la prenotazione sia davvero cancellata.
+  const prenSospette = db.prenotazioni.filter(p => {
+    if (!p.ical_uid || p.checkout < todayStr) return false
+    return !db.prenotazioniIcal.some(ev => ev.source===p.piattaforma && p.checkin<ev.data_fine && p.checkout>ev.data_inizio)
+  })
+
   const prenOggiCI = db.prenotazioni.filter(p=>p.checkin===todayStr)
   const prenOggiCO = db.prenotazioni.filter(p=>p.checkout===todayStr)
   const prenInCorso = db.prenotazioni.filter(p=>p.checkin<=todayStr&&p.checkout>todayStr)
@@ -362,31 +375,17 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   }
 
   // ── IMPORT ICAL ───────────────────────────────────────────────────────
+  // Richiama la stessa funzione di sincronizzazione usata dal cron ogni 2h
+  // (prima questo pulsante usava un meccanismo separato e piu' fragile,
+  // basato su proxy CORS pubblici dal browser, che non rifletteva mai le
+  // cancellazioni e poteva fallire in silenzio se i proxy erano irraggiungibili).
   const importIcal = async () => {
-    setIcalStatus('⏳ Importazione...')
-    const parse = (text, piattaforma) => {
-      const events=[]; const blocks=text.split('BEGIN:VEVENT'); blocks.shift()
-      for (const block of blocks) {
-        const get=k=>{const m=block.match(new RegExp(k+'[^:]*:([^\\r\\n]+)'));return m?m[1].trim():''}
-        const ds=get('DTSTART'); const de=get('DTEND')
-        const pD=d=>{const s=d.replace(/T.*/,'');return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8)}
-        if(ds&&de) events.push({uid:get('UID'),checkin:pD(ds),checkout:pD(de),nome:get('SUMMARY')||piattaforma,piattaforma:piattaforma==='Airbnb'?'airbnb':'booking'})
-      }
-      return events
-    }
-    const fetch2=async(url,plat)=>{
-      for(const px of[`https://corsproxy.io/?${encodeURIComponent(url)}`,`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`]){
-        try{const r=await fetch(px,{signal:AbortSignal.timeout(8000)});if(r.ok){const t=await r.text();if(t.includes('BEGIN:VCALENDAR'))return parse(t,plat)}}catch{}
-      }
-      return null
-    }
-    let tot=0; const errs=[]
-    const air=db.impostazioni.ical_airbnb; const bk=db.impostazioni.ical_booking
-    if(air){const evs=await fetch2(air,'Airbnb');if(evs)tot+=await db.importPrenotazioniIcal(evs);else errs.push('Airbnb')}
-    if(bk){const evs=await fetch2(bk,'Booking');if(evs)tot+=await db.importPrenotazioniIcal(evs);else errs.push('Booking')}
-    if(errs.length&&!tot) setIcalStatus('⚠️ Errore: '+errs.join(', '))
-    else if(tot>0){setIcalStatus(`✅ ${tot} importate`);toast.show(`✅ ${tot} prenotazioni importate`)}
-    else setIcalStatus('Nessuna nuova prenotazione')
+    setIcalStatus('⏳ Sincronizzazione...')
+    try {
+      const r = await db.syncIcal()
+      if (r?.errori?.length) setIcalStatus('⚠️ ' + r.errori.join(', '))
+      else { setIcalStatus(`✅ Sincronizzato: ${r?.airbnb ?? 0} Airbnb, ${r?.booking ?? 0} Booking`); toast.show('✅ Calendario sincronizzato') }
+    } catch (e) { setIcalStatus('⚠️ Errore: ' + e.message) }
   }
 
   // ── Calendar grid ─────────────────────────────────────────────────────
@@ -409,7 +408,17 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         const dsNext=new Date(new Date(ds).getTime()+86400000).toISOString().slice(0,10)
         if(it.checkout===dsNext) cls+=' occ-end'
       }
-      if(isTurnover) cls+=' occ-turnover'
+      let turnoverBg = null
+      if(isTurnover){
+        cls+=' occ-turnover'
+        // Giorno diviso in obliquo: check-in in alto, check-out in basso —
+        // il colore unico non rendeva chiaro che sono due ospiti diversi.
+        const colorFor = x => !x ? 'transparent' : x.tipo==='blocco' ? 'rgba(139,115,85,.35)'
+          : x.piattaforma==='airbnb' ? 'rgba(255,90,95,.35)' : x.piattaforma==='booking' ? 'rgba(0,59,149,.3)' : 'rgba(74,103,65,.3)'
+        const inItem = occ.items.find(x=>x.checkin===ds)
+        const outItem = occ.items.find(x=>x.checkout===ds)
+        turnoverBg = `linear-gradient(135deg, ${colorFor(inItem)} 50%, ${colorFor(outItem)} 50%)`
+      }
       const onClick = it ? () => {
         if (it.kind==='manuale') apriModificaPrenotazione(it.ref)
         else if (it.tipo!=='blocco') apriDaIcal(it)
@@ -422,7 +431,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           tag = parts.length>1 ? `${parts[0]} ${parts[1][0]}.` : (parts[0]||'')
         } else tag=`${piattaformaLabel(it.piattaforma)} ${diffDays(it.checkout,it.checkin)}n`
       }
-      days.push(<div key={day} className={cls} style={onClick?{cursor:'pointer'}:{}} title={it?(occupancyLabel(it)+(isTurnover?' · turnover':'')):''} onClick={onClick}>
+      const cellStyle = {...(onClick?{cursor:'pointer'}:{}), ...(turnoverBg?{background:turnoverBg}:{})}
+      days.push(<div key={day} className={cls} style={cellStyle} title={it?(occupancyLabel(it)+(isTurnover?' · turnover':'')):''} onClick={onClick}>
         <span>{day}</span>{tag&&<span className="cd-tag">{tag}</span>}{isTurnover&&<span className="cd-turn">⇄</span>}
       </div>)
     }
@@ -442,6 +452,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     else if(isCO) statusChip=<span className="badge b-oggi">Check-out oggi</span>
     else if(isIn) statusChip=<span className="badge b-ok">In corso 🟢</span>
     else{const d=diffDays(p.checkin,todayStr);statusChip=<span className="badge b-presto">Tra {d}g</span>}
+    const sospetta = prenSospette.some(s=>s.id===p.id)
     if(compact) return(
       <div className={`bkc ${platCls}`} style={{cursor:'pointer'}} onClick={()=>apriModificaPrenotazione(p)}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'start'}}>
@@ -454,6 +465,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {p.totale>0&&<span style={{fontFamily:'Cormorant Garamond,serif',fontSize:14,fontWeight:600,color:'var(--verde)'}}>{fmtFull(p.totale)}</span>}
           {p.stato_pagamento==='saldato'?<span className="badge b-ok">Saldato</span>:p.stato_pagamento==='acconto'?<span className="badge b-oggi">Acconto</span>:<span className="badge b-scaduto">Da saldare</span>}
           {p.recensione_voto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {p.recensione_voto}/10</span>}
+          {sospetta&&<span className="badge" style={{background:'rgba(192,57,43,.15)',color:'var(--rosso)'}}>⚠️ Verifica su {platL}</span>}
         </div>
         <div style={{display:'flex',gap:5,marginTop:8}}>
           <button className="btn bp bsm" onClick={e=>{e.stopPropagation();apriModificaPrenotazione(p)}}>✏️ Modifica</button>
@@ -469,7 +481,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:7}}>
           <div>
             <div style={{fontSize:15,fontWeight:700}}>{p.nome}</div>
-            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>{statusChip}<span className={`badge ${platB}`}>{platL}</span>{ospiteCollegato&&<span className="pill">{ospiteCollegato.nazionalita||'—'}</span>}{p.recensione_voto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {p.recensione_voto}/10</span>}</div>
+            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}>{statusChip}<span className={`badge ${platB}`}>{platL}</span>{ospiteCollegato&&<span className="pill">{ospiteCollegato.nazionalita||'—'}</span>}{p.recensione_voto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {p.recensione_voto}/10</span>}{sospetta&&<span className="badge" style={{background:'rgba(192,57,43,.15)',color:'var(--rosso)'}}>⚠️ Verifica su {platL}</span>}</div>
           </div>
           <button className="del" onClick={e=>{e.stopPropagation();db.deletePrenotazione(p.id)}}>🗑</button>
         </div>
@@ -504,6 +516,9 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     const nights=diffDays(it.checkout,it.checkin)
     const platCls=it.piattaforma==='airbnb'?'airbnb':it.piattaforma==='booking'?'booking-com':'diretto'
     const isBlocco=it.tipo==='blocco'
+    // 1 notte su Booking e' sempre pulizie (regola struttura: min. 2 notti),
+    // classificato automaticamente — non ha senso poterlo "smarcare".
+    const autoPulizie = it.piattaforma==='booking' && nights===1
     return (
       <div className={`bkc ${platCls}`} style={{marginBottom:compact?7:10, opacity:isBlocco?0.75:1}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:7}}>
@@ -516,12 +531,12 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           </div>
         </div>
         <div style={{fontSize:11,color:'var(--grigio)',marginTop:7}}>📅 {fmtDate(it.checkin)} → {fmtDate(it.checkout)} · {nights}n</div>
-        <div style={{display:'flex',gap:5,marginTop:8}}>
+        {!autoPulizie && <div style={{display:'flex',gap:5,marginTop:8}}>
           {!isBlocco&&<button className="btn bp bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>apriDaIcal(it)}>✏️ Aggiungi dettagli</button>}
           <button className="btn bs bsm" style={{flex:1,justifyContent:'center'}} onClick={()=>db.segnaChiusura(it.ref.uid, it.checkin, it.checkout, !isBlocco)}>
             {isBlocco?'↩ Segna come prenotazione':'🚫 Segna come chiusura'}
           </button>
-        </div>
+        </div>}
       </div>
     )
   }
@@ -678,6 +693,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
 
         {/* ── HOME ─────────────────────────────────────────────── */}
         {!db.loading && screen==='home' && <>
+          {prenSospette.length>0 && <div className="alert" style={{cursor:'pointer'}} onClick={()=>setScreen('prenotazioni')}>⚠️ {prenSospette.length} prenotazion{prenSospette.length>1?'i non risultano':'e non risulta'} più nel calendario sincronizzato — verifica se {prenSospette.length>1?'sono state':'è stata'} cancellat{prenSospette.length>1?'e':'a'}</div>}
           {scadUrgenti.length>0 && <div className="alert">⚠️ {scadUrgenti.length} scadenza{scadUrgenti.length>1?'e':''} urgente — controlla Gestione</div>}
           {bollUrgenti.length>0 && <div className="alert alert-oro">🧾 {bollUrgenti.length} bolletta{bollUrgenti.length>1?'e':''} in scadenza</div>}
 
@@ -1311,13 +1327,25 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
         <div className="frow">
           <div className="fg"><label className="fl">Ospiti</label><input type="number" className="fi" value={prenForm.ospiti_num} onChange={e=>setPrenForm(f=>({...f,ospiti_num:e.target.value}))} min="1"/></div>
-          <div className="fg"><label className="fl">Lordo / Totale (€)</label><input type="number" className="fi" value={prenForm.totale} onChange={e=>setPrenForm(f=>({...f,totale:e.target.value}))} step="0.01"/></div>
+          <div className="fg"><label className="fl">{prenForm.piattaforma==='diretto'?'Importo (€)':'Lordo / Totale (€)'}</label><input type="number" className="fi" value={prenForm.totale} onChange={e=>setPrenForm(f=>({...f,totale:e.target.value}))} step="0.01"/></div>
         </div>
-        <div className="frow">
-          <div className="fg"><label className="fl">Acconto (€)</label><input type="number" className="fi" value={prenForm.acconto} onChange={e=>setPrenForm(f=>({...f,acconto:e.target.value}))} step="0.01"/></div>
-          <div className="fg"><label className="fl">Commissione (€)</label><input type="number" className="fi" value={prenForm.commissione} onChange={e=>setPrenForm(f=>({...f,commissione:e.target.value}))} step="0.01"/></div>
-        </div>
-        {prenForm.totale&&(() => {
+        {prenForm.piattaforma==='diretto' ? (
+          <div className="frow">
+            <div className="fg"><label className="fl">Acconto (€)</label><input type="number" className="fi" value={prenForm.acconto} onChange={e=>setPrenForm(f=>({...f,acconto:e.target.value}))} step="0.01"/></div>
+            <div className="fg">
+              <label className="fl">Importo da versare (€)</label>
+              <div className="fi" style={{display:'flex',alignItems:'center',fontWeight:600,color:'var(--terracotta)'}}>
+                {fmtFull(Math.max(0,(parseFloat(prenForm.totale)||0)-(parseFloat(prenForm.acconto)||0)))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="frow">
+            <div className="fg"><label className="fl">Acconto (€)</label><input type="number" className="fi" value={prenForm.acconto} onChange={e=>setPrenForm(f=>({...f,acconto:e.target.value}))} step="0.01"/></div>
+            <div className="fg"><label className="fl">Commissione (€)</label><input type="number" className="fi" value={prenForm.commissione} onChange={e=>setPrenForm(f=>({...f,commissione:e.target.value}))} step="0.01"/></div>
+          </div>
+        )}
+        {prenForm.piattaforma!=='diretto' && prenForm.totale&&(() => {
           const notti = (prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin) ? diffDays(prenForm.checkout,prenForm.checkin) : 0
           const {lordo, commissione, cedolare, netto, stimata} = scomponi(prenForm.piattaforma, prenForm.checkin||todayStr, prenForm.totale, prenForm.commissione, db.impostazioni)
           const nettoNotte = notti>0 ? netto/notti : null

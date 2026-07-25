@@ -118,24 +118,14 @@ export function useDb() {
   const updatePrenotazione = (id, p) => update('prenotazioni', 'prenotazioni', id, p)
   const deletePrenotazione = id => remove('prenotazioni', 'prenotazioni', id)
 
-  const importPrenotazioniIcal = async (events) => {
-    let imported = 0
-    for (const ev of events) {
-      if (!ev.checkin || !ev.checkout || ev.checkin === ev.checkout) continue
-      const n = ev.nome.toLowerCase()
-      if (n.includes('block') || n.includes('not available') || n.includes('chiuso')) continue
-      const payload = { nome: ev.nome, checkin: ev.checkin, checkout: ev.checkout,
-        ospiti_num: 1, totale: 0, piattaforma: ev.piattaforma, ical_uid: ev.uid || null, note: 'Importato iCal' }
-      if (ev.uid) {
-        const { error } = await supabase.from('prenotazioni').upsert(payload, { onConflict: 'ical_uid', ignoreDuplicates: true })
-        if (!error) imported++
-      } else {
-        const { data: ex } = await supabase.from('prenotazioni').select('id').eq('checkin', ev.checkin).eq('checkout', ev.checkout).eq('piattaforma', ev.piattaforma)
-        if (!ex?.length) { const { error } = await supabase.from('prenotazioni').insert([payload]); if (!error) imported++ }
-      }
-    }
+  // Richiama la stessa Edge Function usata dal cron ogni 2h (non un
+  // meccanismo separato via proxy pubblici): sincronizza davvero i dati e
+  // poi ricarica. Ritorna i conteggi/errori grezzi della funzione.
+  const syncIcal = async () => {
+    const { data, error } = await supabase.functions.invoke('sync-ical')
+    if (error) throw error
     await loadAll()
-    return imported
+    return data
   }
 
   const toggleChiusuraIcal = async (uid, chiusura) => {
@@ -234,10 +224,6 @@ export function useDb() {
     setData(prev => ({ ...prev, impostazioni: { ...prev.impostazioni, [chiave]: valore } }))
   }
 
-  const saveIcal = async (airbnb, booking) => {
-    await Promise.all([saveImpostazione('ical_airbnb', airbnb), saveImpostazione('ical_booking', booking)])
-  }
-
   // ── ALLOGGIATI WEB ───────────────────────────────────────────────
   const generaSchedina = (prenotazione, ospite) => {
     if (!ospite) return null
@@ -264,7 +250,7 @@ export function useDb() {
 
   return {
     ...data, loading, online, reload: loadAll,
-    addPrenotazione, updatePrenotazione, deletePrenotazione, importPrenotazioniIcal,
+    addPrenotazione, updatePrenotazione, deletePrenotazione,
     addOspite, updateOspite, deleteOspite,
     addFinanza, deleteFinanza,
     addBolletta, updateBolletta, deleteBolletta,
@@ -272,11 +258,11 @@ export function useDb() {
     addPrezzo, updatePrezzo, deletePrezzo,
     addRegola, updateRegola, deleteRegola,
     initChecklist, getChecklist, toggleChecklist,
-    toggleChiusuraIcal, segnaChiusura,
+    toggleChiusuraIcal, segnaChiusura, syncIcal,
     addManutenzione, updateManutenzione, deleteManutenzione,
     addInventario, updateInventario, deleteInventario,
     addDocumento, updateDocumento, deleteDocumento,
-    saveImpostazione, saveIcal,
+    saveImpostazione,
     generaSchedina,
   }
 }

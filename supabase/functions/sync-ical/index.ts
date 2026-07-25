@@ -6,6 +6,14 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// Solo per permettere al pulsante "Importa iCal" dell'app di richiamare
+// questa stessa funzione dal browser (il cron non ne ha bisogno, essendo
+// una chiamata server-to-server): nessuna modifica alla logica di sync.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 const FEEDS = [
   {
     source: "airbnb",
@@ -74,7 +82,9 @@ function parseIcs(ics: string, source: string): Evento[] {
   return eventi;
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -133,6 +143,6 @@ Deno.serve(async () => {
 
   risultato.totale = totale;
   return new Response(JSON.stringify(risultato), {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...corsHeaders },
   });
 });

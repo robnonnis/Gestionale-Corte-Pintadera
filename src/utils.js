@@ -54,9 +54,14 @@ export const piattaformaBadge = p => p==='airbnb'?'badge-airbnb':p==='booking'?'
 // di `prenotazioni`, vince quella manuale perché ha nome e importo.
 export function buildOccupancy(prenotazioni, prenotazioniIcal, chiusureManuali) {
   const matchedUids = new Set(prenotazioni.filter(p=>p.ical_uid).map(p=>p.ical_uid))
+  // Il confronto e' per sovrapposizione di date (non match esatto) perche'
+  // Booking spesso rigenera l'uid E sposta leggermente i confini quando una
+  // prenotazione gia' completata a mano viene ritoccata sul suo calendario:
+  // un match esatto lascerebbe comparire un fantasma quasi-duplicato accanto
+  // alla prenotazione reale.
   const icalOnly = (prenotazioniIcal||[]).filter(ev => {
     if (matchedUids.has(ev.uid)) return false
-    const dup = prenotazioni.some(p=>p.checkin===ev.data_inizio && p.checkout===ev.data_fine && p.piattaforma===ev.source)
+    const dup = prenotazioni.some(p=>p.piattaforma===ev.source && p.checkin<ev.data_fine && p.checkout>ev.data_inizio)
     return !dup
   })
   // Booking rigenera l'uid iCal ogni volta che una chiusura viene modificata
@@ -65,6 +70,10 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal, chiusureManuali) 
   // ogni cambio, chiusure_manuali ricorda gli intervalli per data (non per uid)
   // e sopravvive al cambio uid.
   const inChiusuraNota = ev => (chiusureManuali||[]).some(c => ev.data_inizio<c.data_fine && ev.data_fine>c.data_inizio)
+  // Booking non accetta soggiorni di una sola notte (regola della struttura):
+  // un evento Booking di 1 notte e' quindi sempre un gap pulizie tra due
+  // prenotazioni vere, mai una prenotazione reale — non serve marcarlo a mano.
+  const unaNotteBooking = ev => ev.source==='booking' && diffDays(ev.data_fine,ev.data_inizio)===1
   const items = [
     ...prenotazioni.map(p => ({
       id:'m-'+p.id, kind:'manuale', checkin:p.checkin, checkout:p.checkout,
@@ -73,7 +82,7 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal, chiusureManuali) 
     ...icalOnly.map(ev => ({
       id:'i-'+ev.uid, kind:'ical', checkin:ev.data_inizio, checkout:ev.data_fine,
       piattaforma:ev.source, nome:null, totale:null,
-      tipo: (ev.chiusura_manuale || inChiusuraNota(ev)) ? 'blocco' : ev.tipo, ref:ev
+      tipo: (ev.chiusura_manuale || inChiusuraNota(ev) || unaNotteBooking(ev)) ? 'blocco' : ev.tipo, ref:ev
     })),
   ].sort((a,b)=>a.checkin.localeCompare(b.checkin))
 
