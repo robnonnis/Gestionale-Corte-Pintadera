@@ -60,7 +60,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
+  const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
   const emptyMan = { titolo:'', tipo:'ordinaria', data:today(), costo:'', fornitore:'', telefono:'', stato:'completato', prossima_data:'', note:'' }
@@ -188,7 +188,8 @@ export default function App() {
   const toggleMonth = mk => setOpenMonths(s => { const n = new Set(s); n.has(mk) ? n.delete(mk) : n.add(mk); return n })
   const apriModificaPrenotazione = (p) => {
     setPrenForm({
-      id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout, ospiti_num:p.ospiti_num||1,
+      id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout,
+      checkin_ora:(p.checkin_ora||'').slice(0,5), checkout_ora:(p.checkout_ora||'').slice(0,5), ospiti_num:p.ospiti_num||1,
       totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', piattaforma:p.piattaforma||'diretto',
       stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||'',
       recensione_voto:p.recensione_voto??'', recensione_testo:p.recensione_testo||''
@@ -207,6 +208,7 @@ export default function App() {
     if (prenForm.checkout<=prenForm.checkin) { toast.show('Check-out deve essere dopo check-in'); return }
     try {
       const payload = {nome:prenForm.nome, checkin:prenForm.checkin, checkout:prenForm.checkout,
+        checkin_ora:prenForm.checkin_ora||null, checkout_ora:prenForm.checkout_ora||null,
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
         acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0,
         piattaforma:prenForm.piattaforma, stato_pagamento:prenForm.stato_pagamento, note:prenForm.note,
@@ -366,7 +368,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     const nights = diffDays(p.checkout, p.checkin)
     const platL = piattaformaLabel(p.piattaforma)
     return {
-      conferma:    { t:'✅ Conferma', msg:`Ciao ${nome}! 😊\n\nGrazie per aver scelto Corte Pintadera. Prenotazione confermata:\n\n📅 Check-in: ${fmtDate(p.checkin)} ore 15:00\n📅 Check-out: ${fmtDate(p.checkout)} ore 09:00\n🌙 ${nights} notti · 👥 ${p.ospiti_num} ospiti\n\nSaremo ad accoglierti personalmente.\nRoberta e Alessandro 🏡` },
+      conferma:    { t:'✅ Conferma', msg:`Ciao ${nome}! 😊\n\nGrazie per aver scelto Corte Pintadera. Prenotazione confermata:\n\n📅 Check-in: ${fmtDate(p.checkin)} ore ${(p.checkin_ora||'15:00').slice(0,5)}\n📅 Check-out: ${fmtDate(p.checkout)} ore ${(p.checkout_ora||'09:00').slice(0,5)}\n🌙 ${nights} notti · 👥 ${p.ospiti_num} ospiti\n\nSaremo ad accoglierti personalmente.\nRoberta e Alessandro 🏡` },
       istruzioni:  { t:'🗝 Istruzioni', msg:`Ciao ${nome}! Ecco come raggiungerci 👇\n\n📍 Via Cimitero 38/A, Uta (CA) 09068\n🚗 Da Cagliari ~20 min · Da Aeroporto ~10 min\n🕒 Check-in dalle 15:00\n\n📶 Wi-Fi: FASTWEB-E3XZSC\n🔑 Password: C7RAEXHAUG\n🚗 Parcheggio gratuito su Via Cimitero\n\nA presto!\nRoberta e Alessandro 🏡` },
       benvenuto:   { t:'👋 Benvenuto', msg:`Benvenuto/a a Corte Pintadera, ${nome}! 🏡\n\nSe manca qualcosa faccelo sapere subito.\n\n🌡 Climatizzatori: telecomando sul tavolo\n☕ Caffè e kit benvenuto in cucina\n🗑 Raccolta differenziata: istruzioni sulla porta\n🕓 Silenzio dalle 23:30 alle 08:00\n\nBuona permanenza! 😊\nRoberta e Alessandro` },
       checkout:    { t:'🧳 Check-out', msg:`Ciao ${nome}! Domani è il giorno del check-out.\n\n🕘 Entro le ore 09:00\n\nPrima di partire:\n🔑 Chiavi sul tavolo soggiorno\n🌡 Spegni i climatizzatori\n💡 Spegni le luci\n🚪 Chiudi la veranda\n\nGrazie e a presto! 🏡\nRoberta e Alessandro` },
@@ -413,8 +415,11 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         cls+=' occ-turnover'
         // Giorno diviso in obliquo: check-in in alto, check-out in basso —
         // il colore unico non rendeva chiaro che sono due ospiti diversi.
-        const colorFor = x => !x ? 'transparent' : x.tipo==='blocco' ? 'rgba(139,115,85,.35)'
-          : x.piattaforma==='airbnb' ? 'rgba(255,90,95,.35)' : x.piattaforma==='booking' ? 'rgba(0,59,149,.3)' : 'rgba(74,103,65,.3)'
+        // Stessi identici colori/opacita' delle celle singole per piattaforma
+        // (.occ-airbnb/.occ-booking/.occ-diretto/.occ-blocco), cosi' ogni meta'
+        // si riconosce a colpo d'occhio confrontandola con le celle accanto.
+        const colorFor = x => !x ? 'transparent' : x.tipo==='blocco' ? 'rgba(139,115,85,.2)'
+          : x.piattaforma==='airbnb' ? 'rgba(255,90,95,.2)' : x.piattaforma==='booking' ? 'rgba(0,59,149,.16)' : 'rgba(74,103,65,.15)'
         const inItem = occ.items.find(x=>x.checkin===ds)
         const outItem = occ.items.find(x=>x.checkout===ds)
         turnoverBg = `linear-gradient(135deg, ${colorFor(inItem)} 50%, ${colorFor(outItem)} 50%)`
@@ -460,6 +465,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div style={{display:'flex',gap:5,alignItems:'center'}}>{statusChip}<button className="del" onClick={e=>{e.stopPropagation();db.deletePrenotazione(p.id)}}>🗑</button></div>
         </div>
         <div style={{fontSize:11,color:'var(--grigio)',marginTop:3}}>📅 {fmtDate(p.checkin)} → {fmtDate(p.checkout)} · {nights}n · {p.ospiti_num} ospiti</div>
+        {(p.checkin_ora||p.checkout_ora)&&<div style={{fontSize:11,color:'var(--grigio)',marginTop:2}}>🕒 {p.checkin_ora?p.checkin_ora.slice(0,5):'—'} → {p.checkout_ora?p.checkout_ora.slice(0,5):'—'}</div>}
         <div style={{display:'flex',gap:5,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
           <span className={`badge ${platB}`}>{platL}</span>
           {p.totale>0&&<span style={{fontFamily:'Cormorant Garamond,serif',fontSize:14,fontWeight:600,color:'var(--verde)'}}>{fmtFull(p.totale)}</span>}
@@ -486,7 +492,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <button className="del" onClick={e=>{e.stopPropagation();db.deletePrenotazione(p.id)}}>🗑</button>
         </div>
         <div style={{marginTop:9,display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
-          {[['Check-in',p.checkin,'15:00'],['Check-out',p.checkout,'09:00']].map(([l,d,ora])=>(
+          {[['Check-in',p.checkin,(p.checkin_ora||'15:00').slice(0,5)],['Check-out',p.checkout,(p.checkout_ora||'09:00').slice(0,5)]].map(([l,d,ora])=>(
             <div key={l} style={{background:'var(--sabbia)',borderRadius:7,padding:'7px 9px'}}>
               <div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em',fontWeight:600}}>{l}</div>
               <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:14,fontWeight:600,marginTop:2}}>📅 {fmtDate(d)}</div>
@@ -1313,6 +1319,11 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           <div className="fg"><label className="fl">Check-in</label><input type="date" className="fi" value={prenForm.checkin} onChange={e=>setPrenForm(f=>({...f,checkin:e.target.value}))}/></div>
           <div className="fg"><label className="fl">Check-out</label><input type="date" className="fi" value={prenForm.checkout} onChange={e=>setPrenForm(f=>({...f,checkout:e.target.value}))}/></div>
         </div>
+        <div className="frow">
+          <div className="fg"><label className="fl">Orario check-in</label><input type="time" className="fi" value={prenForm.checkin_ora} onChange={e=>setPrenForm(f=>({...f,checkin_ora:e.target.value}))} placeholder="es. 15:00"/></div>
+          <div className="fg"><label className="fl">Orario check-out</label><input type="time" className="fi" value={prenForm.checkout_ora} onChange={e=>setPrenForm(f=>({...f,checkout_ora:e.target.value}))} placeholder="es. 09:00"/></div>
+        </div>
+        <div style={{fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:8}}>Da compilare quando l'ospite comunica l'orario — altrimenti restano gli orari standard (15:00 / 09:00)</div>
         <div className="fg">
           <label className="fl">Notti</label>
           <input type="number" min="1" className="fi" style={{maxWidth:100}}
