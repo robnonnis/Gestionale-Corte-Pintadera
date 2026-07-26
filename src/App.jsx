@@ -413,16 +413,19 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       let turnoverBg = null
       if(isTurnover){
         cls+=' occ-turnover'
-        // Giorno diviso in obliquo: check-in in alto, check-out in basso —
-        // il colore unico non rendeva chiaro che sono due ospiti diversi.
-        // Stessi identici colori/opacita' delle celle singole per piattaforma
-        // (.occ-airbnb/.occ-booking/.occ-diretto/.occ-blocco), cosi' ogni meta'
-        // si riconosce a colpo d'occhio confrontandola con le celle accanto.
-        const colorFor = x => !x ? 'transparent' : x.tipo==='blocco' ? 'rgba(139,115,85,.2)'
+        // Giorno diviso in obliquo: check-out in alto/sinistra, check-in in
+        // basso/destra (invertito rispetto al primo tentativo, come richiesto).
+        // Le pulizie usano lo stesso motivo a righe di .occ-blocco (non un
+        // colore pieno, facilmente confuso con una piattaforma) — il colore
+        // pieno della piattaforma "buca" lo strato sottostante lasciando
+        // vedere le righe solo dove serve.
+        const isBlocco = x => x && x.tipo==='blocco'
+        const guestColor = x => !x ? 'transparent' : isBlocco(x) ? 'transparent'
           : x.piattaforma==='airbnb' ? 'rgba(255,90,95,.2)' : x.piattaforma==='booking' ? 'rgba(0,59,149,.16)' : 'rgba(74,103,65,.15)'
         const inItem = occ.items.find(x=>x.checkin===ds)
         const outItem = occ.items.find(x=>x.checkout===ds)
-        turnoverBg = `linear-gradient(135deg, ${colorFor(inItem)} 50%, ${colorFor(outItem)} 50%)`
+        turnoverBg = `linear-gradient(135deg, ${guestColor(outItem)} 50%, ${guestColor(inItem)} 50%),`
+          + `repeating-linear-gradient(45deg, rgba(139,115,85,.2), rgba(139,115,85,.2) 4px, transparent 4px, transparent 8px)`
       }
       const onClick = it ? () => {
         if (it.kind==='manuale') apriModificaPrenotazione(it.ref)
