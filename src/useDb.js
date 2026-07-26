@@ -153,6 +153,12 @@ export function useDb() {
     }
   }
 
+  // Chiusura manuale "pura" (ferie, manutenzione...) senza nessun evento
+  // OTA collegato — inseribile direttamente dall'host, non solo come
+  // conseguenza di un toggle su un evento iCal esistente.
+  const addChiusuraManuale = c => insert('chiusure_manuali', 'chiusureManuali', c, (a,b)=>a.data_inizio.localeCompare(b.data_inizio))
+  const deleteChiusuraManuale = id => remove('chiusure_manuali', 'chiusureManuali', id)
+
   // ── OSPITI ────────────────────────────────────────────────────────
   const addOspite = o => insert('ospiti', 'ospiti', o, (a,b)=>a.nome.localeCompare(b.nome))
   const updateOspite = (id, o) => update('ospiti', 'ospiti', id, o)
@@ -258,7 +264,7 @@ export function useDb() {
     addPrezzo, updatePrezzo, deletePrezzo,
     addRegola, updateRegola, deleteRegola,
     initChecklist, getChecklist, toggleChecklist,
-    toggleChiusuraIcal, segnaChiusura, syncIcal,
+    toggleChiusuraIcal, segnaChiusura, syncIcal, addChiusuraManuale, deleteChiusuraManuale,
     addManutenzione, updateManutenzione, deleteManutenzione,
     addInventario, updateInventario, deleteInventario,
     addDocumento, updateDocumento, deleteDocumento,

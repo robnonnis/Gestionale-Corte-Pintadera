@@ -61,6 +61,7 @@ export default function App() {
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
   const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
+  const emptyChiusura = { data_inizio:'', data_fine:'', note:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
   const emptyMan = { titolo:'', tipo:'ordinaria', data:today(), costo:'', fornitore:'', telefono:'', stato:'completato', prossima_data:'', note:'' }
@@ -71,6 +72,7 @@ export default function App() {
 
   const [finForm, setFinForm] = useState(emptyFin)
   const [prenForm, setPrenForm] = useState(emptyPren)
+  const [chiusuraForm, setChiusuraForm] = useState(emptyChiusura)
   const [scadForm, setScadForm] = useState(emptyScad)
   const [bollForm, setBollForm] = useState(emptyBoll)
   const [manForm, setManForm] = useState(emptyMan)
@@ -218,6 +220,14 @@ export default function App() {
       if (prenForm.id) await db.updatePrenotazione(prenForm.id, payload)
       else await db.addPrenotazione(payload)
       toast.show('✅ Prenotazione salvata'); setModal(null); setPrenForm(emptyPren)
+    } catch(e) { toast.show('❌ '+e.message) }
+  }
+  const salvaChiusura = async () => {
+    if (!chiusuraForm.data_inizio||!chiusuraForm.data_fine) { toast.show('Date obbligatorie'); return }
+    if (chiusuraForm.data_fine<=chiusuraForm.data_inizio) { toast.show('La data fine deve essere dopo l\'inizio'); return }
+    try {
+      await db.addChiusuraManuale({data_inizio:chiusuraForm.data_inizio, data_fine:chiusuraForm.data_fine, note:chiusuraForm.note||null})
+      toast.show('✅ Chiusura salvata'); setModal(null); setChiusuraForm(emptyChiusura)
     } catch(e) { toast.show('❌ '+e.message) }
   }
   const salvaScadenza = async () => {
@@ -550,7 +560,25 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     )
   }
 
-  const OccCard = ({it, compact=false}) => it.kind==='manuale' ? <BkCard p={it.ref} compact={compact}/> : <IcalCard it={it} compact={compact}/>
+  // ── Card chiusura manuale "pura" (ferie/manutenzione, nessun evento OTA) ──
+  const ChiusuraCard = ({it, compact=false}) => {
+    const nights = diffDays(it.checkout, it.checkin)
+    return (
+      <div className="bkc" style={{marginBottom:compact?7:10, opacity:.75, borderColor:'var(--grigio)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:7}}>
+          <div>
+            <div style={{fontSize:compact?13:15,fontWeight:700}}>Blocco / Ferie</div>
+            <div style={{marginTop:4,display:'flex',gap:5,flexWrap:'wrap'}}><span className="pill">Chiusura manuale</span></div>
+          </div>
+          <button className="del" onClick={()=>db.deleteChiusuraManuale(it.ref.id)}>🗑</button>
+        </div>
+        <div style={{fontSize:11,color:'var(--grigio)',marginTop:7}}>📅 {fmtDate(it.checkin)} → {fmtDate(it.checkout)} · {nights}n</div>
+        {it.ref.note&&<div style={{fontSize:11,color:'var(--grigio)',marginTop:5,fontStyle:'italic'}}>📝 {it.ref.note}</div>}
+      </div>
+    )
+  }
+
+  const OccCard = ({it, compact=false}) => it.kind==='manuale' ? <BkCard p={it.ref} compact={compact}/> : it.kind==='chiusura' ? <ChiusuraCard it={it} compact={compact}/> : <IcalCard it={it} compact={compact}/>
 
   // Percorso di una barra con angoli arrotondati solo in alto (ancorata alla base)
   const barPath = (x,y,w,h,r) => {
@@ -793,7 +821,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
 
           <div style={{display:'flex',gap:6,marginBottom:9}}>
             <button className="btn bs bsm" style={{flex:1}} onClick={importIcal}>🔄 Importa iCal</button>
-            <button className="btn bp bsm" onClick={()=>{setPrenForm(emptyPren);setModal('modal-prenotazione')}}>+ Prenotazione</button>
+            <button className="btn bp bsm" style={{flex:1}} onClick={()=>{setPrenForm(emptyPren);setModal('modal-prenotazione')}}>+ Prenotazione</button>
+            <button className="btn bs bsm" style={{flex:1}} onClick={()=>{setChiusuraForm(emptyChiusura);setModal('modal-chiusura')}}>🚫 + Chiusura</button>
           </div>
           {icalStatus&&<div style={{fontSize:10,color:'var(--grigio)',marginBottom:8,textAlign:'center'}}>{icalStatus}</div>}
           <div className="stitle">Dettaglio prenotazioni — {MESI[calMonth.getMonth()]}</div>
@@ -1309,8 +1338,8 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       {/* FAB menu */}
       <Modal open={modal==='fab'} onClose={()=>setModal(null)}>
         <div style={{display:'flex',flexDirection:'column',gap:8,paddingTop:4}}>
-          {[['modal-prenotazione','📅','Nuova prenotazione','bp'],['modal-finanza','💶','Nuova transazione','bp'],['modal-bolletta','🧾','Nuova bolletta','bs'],['modal-scadenza','🔔','Nuova scadenza','bs'],['modal-manutenzione','🔧','Nuova manutenzione','bs'],['modal-inventario','📦','Nuovo inventario','bs'],['modal-documento','📁','Nuovo documento','bs'],['modal-prezzo','📊','Nuova tariffa','bs'],['modal-ospite','👤','Nuovo ospite','bs'],].map(([m,ic,lbl,cls])=>(
-            <button key={m} className={`btn ${cls} bfull`} style={{justifyContent:'flex-start',gap:12,padding:'12px 14px',fontSize:14}} onClick={()=>{if(m==='modal-prenotazione')setPrenForm(emptyPren);setModal(m)}}><span style={{fontSize:18}}>{ic}</span>{lbl}</button>
+          {[['modal-prenotazione','📅','Nuova prenotazione','bp'],['modal-chiusura','🚫','Nuova chiusura (ferie/pulizie)','bs'],['modal-finanza','💶','Nuova transazione','bp'],['modal-bolletta','🧾','Nuova bolletta','bs'],['modal-scadenza','🔔','Nuova scadenza','bs'],['modal-manutenzione','🔧','Nuova manutenzione','bs'],['modal-inventario','📦','Nuovo inventario','bs'],['modal-documento','📁','Nuovo documento','bs'],['modal-prezzo','📊','Nuova tariffa','bs'],['modal-ospite','👤','Nuovo ospite','bs'],].map(([m,ic,lbl,cls])=>(
+            <button key={m} className={`btn ${cls} bfull`} style={{justifyContent:'flex-start',gap:12,padding:'12px 14px',fontSize:14}} onClick={()=>{if(m==='modal-prenotazione')setPrenForm(emptyPren);if(m==='modal-chiusura')setChiusuraForm(emptyChiusura);setModal(m)}}><span style={{fontSize:18}}>{ic}</span>{lbl}</button>
           ))}
         </div>
       </Modal>
@@ -1406,6 +1435,25 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           return <>
             {overlap&&<div className="alert">⚠️ Date sovrapposte con {occupancyLabel(overlap)||'un\'altra prenotazione'} ({fmtDate(overlap.checkin)} → {fmtDate(overlap.checkout)}) — puoi salvare comunque.</div>}
             <button className={`btn ${overlap?'bd':'bp'} bfull`} onClick={salvaPrenotazione}>{overlap?'Salva comunque':'Salva prenotazione'}</button>
+          </>
+        })()}
+      </Modal>
+
+      {/* Chiusura manuale (ferie/pulizie) */}
+      <Modal open={modal==='modal-chiusura'} onClose={()=>setModal(null)} title="Nuova chiusura">
+        <div style={{fontSize:11,color:'var(--grigio)',marginBottom:8}}>Per bloccare le date sul calendario senza una prenotazione reale — ferie, manutenzioni, pulizie straordinarie...</div>
+        <div className="frow">
+          <div className="fg"><label className="fl">Dal</label><input type="date" className="fi" value={chiusuraForm.data_inizio} onChange={e=>setChiusuraForm(f=>({...f,data_inizio:e.target.value}))}/></div>
+          <div className="fg"><label className="fl">Al</label><input type="date" className="fi" value={chiusuraForm.data_fine} onChange={e=>setChiusuraForm(f=>({...f,data_fine:e.target.value}))}/></div>
+        </div>
+        <div className="fg"><label className="fl">Nota</label><input className="fi" value={chiusuraForm.note} onChange={e=>setChiusuraForm(f=>({...f,note:e.target.value}))} placeholder="es. Ferie, tinteggiatura..."/></div>
+        {(() => {
+          const overlap = chiusuraForm.data_inizio && chiusuraForm.data_fine && chiusuraForm.data_fine>chiusuraForm.data_inizio
+            ? trovaSovrapposizione(chiusuraForm.data_inizio, chiusuraForm.data_fine)
+            : null
+          return <>
+            {overlap&&<div className="alert">⚠️ Date sovrapposte con {occupancyLabel(overlap)||'un\'altra prenotazione'} ({fmtDate(overlap.checkin)} → {fmtDate(overlap.checkout)}) — puoi salvare comunque.</div>}
+            <button className={`btn ${overlap?'bd':'bp'} bfull`} onClick={salvaChiusura}>{overlap?'Salva comunque':'Salva chiusura'}</button>
           </>
         })()}
       </Modal>

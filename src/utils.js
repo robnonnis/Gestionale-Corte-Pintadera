@@ -74,6 +74,14 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal, chiusureManuali) 
   // un evento Booking di 1 notte e' quindi sempre un gap pulizie tra due
   // prenotazioni vere, mai una prenotazione reale — non serve marcarlo a mano.
   const unaNotteBooking = ev => ev.source==='booking' && diffDays(ev.data_fine,ev.data_inizio)===1
+  // Chiusure inserite a mano (vacanze, manutenzioni...) senza nessun evento
+  // OTA collegato: quelle che si sovrappongono a una prenotazione o a un
+  // evento iCal sono gia' rappresentate da quell'elemento (via inChiusuraNota
+  // sopra) — qui aggiungiamo solo quelle "pure", altrimenti invisibili in
+  // calendario perche' non derivano da nessun sync.
+  const coperta = c => prenotazioni.some(p=>p.checkin<c.data_fine && p.checkout>c.data_inizio)
+    || icalOnly.some(ev=>ev.data_inizio<c.data_fine && ev.data_fine>c.data_inizio)
+  const chiusurePure = (chiusureManuali||[]).filter(c => !coperta(c))
   const items = [
     ...prenotazioni.map(p => ({
       id:'m-'+p.id, kind:'manuale', checkin:p.checkin, checkout:p.checkout,
@@ -83,6 +91,10 @@ export function buildOccupancy(prenotazioni, prenotazioniIcal, chiusureManuali) 
       id:'i-'+ev.uid, kind:'ical', checkin:ev.data_inizio, checkout:ev.data_fine,
       piattaforma:ev.source, nome:null, totale:null,
       tipo: (ev.chiusura_manuale || inChiusuraNota(ev) || unaNotteBooking(ev)) ? 'blocco' : ev.tipo, ref:ev
+    })),
+    ...chiusurePure.map(c => ({
+      id:'c-'+c.id, kind:'chiusura', checkin:c.data_inizio, checkout:c.data_fine,
+      piattaforma:'diretto', nome:null, totale:null, tipo:'blocco', ref:c
     })),
   ].sort((a,b)=>a.checkin.localeCompare(b.checkin))
 
