@@ -156,11 +156,13 @@ export function prezzoMinimo(piattaforma, dataRif, impostazioni) {
   return utileMin / (1 - taglio/100)
 }
 
-// Scompone un incasso lordo in commissione OTA + cedolare secca + netto finale.
-// La cedolare (taglio_diretto_pct, es. 21%) si applica sempre sul lordo a
-// prescindere dalla piattaforma; la commissione OTA e' il resto del taglio
-// combinato (o quella inserita a mano sulla prenotazione, se presente).
-export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impostazioni) {
+// Scompone un incasso lordo in commissione piattaforma + cedolare secca +
+// commissione pagamenti (costo di transazione/incasso, distinto dalla
+// commissione della piattaforma — es. Booking le mostra separate in fattura)
+// + netto finale. La cedolare (taglio_diretto_pct, es. 21%) si applica
+// sempre sul lordo a prescindere dalla piattaforma; la commissione OTA e'
+// il resto del taglio combinato (o quella inserita a mano, se presente).
+export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impostazioni, commissionePagamento) {
   const l = Number(lordo) || 0
   const cedolarePct = parseFloat(impostazioni?.taglio_diretto_pct ?? '21') || 0
   const cedolare = l * cedolarePct / 100
@@ -173,8 +175,9 @@ export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impost
     const otaPct = Math.max(taglioTotale - cedolarePct, 0)
     commissione = l * otaPct / 100
   }
-  const netto = l - commissione - cedolare
-  return { lordo:l, commissione, cedolare, netto, stimata }
+  const commissionePag = Number(commissionePagamento) || 0
+  const netto = l - commissione - cedolare - commissionePag
+  return { lordo:l, commissione, cedolare, commissionePagamento:commissionePag, netto, stimata }
 }
 
 // Percentuale di occupazione di un mese: notti vendute (prenotazioni reali,
@@ -198,11 +201,12 @@ export function occupancyRate(dayMap, year, month) {
 // cedolare, netto, notti, conteggio). Unico posto che somma questi numeri:
 // usato da Home, Prenotazioni, Finanze — cosi' il calcolo resta uno solo.
 export function aggregaPrenotazioni(prenotazioni, impostazioni) {
-  let lordo=0, commissione=0, cedolare=0, netto=0, notti=0
+  let lordo=0, commissione=0, cedolare=0, commissionePagamento=0, netto=0, notti=0
   prenotazioni.forEach(p => {
-    const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, impostazioni)
-    lordo += s.lordo; commissione += s.commissione; cedolare += s.cedolare; netto += s.netto
+    const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, impostazioni, p.commissione_pagamento)
+    lordo += s.lordo; commissione += s.commissione; cedolare += s.cedolare
+    commissionePagamento += s.commissionePagamento; netto += s.netto
     notti += diffDays(p.checkout, p.checkin)
   })
-  return { lordo, commissione, cedolare, netto, notti, count: prenotazioni.length }
+  return { lordo, commissione, cedolare, commissionePagamento, netto, notti, count: prenotazioni.length }
 }

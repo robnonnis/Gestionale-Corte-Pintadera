@@ -60,7 +60,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
+  const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', commissione_pagamento:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
   const emptyChiusura = { data_inizio:'', data_fine:'', note:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
@@ -192,7 +192,7 @@ export default function App() {
     setPrenForm({
       id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout,
       checkin_ora:(p.checkin_ora||'').slice(0,5), checkout_ora:(p.checkout_ora||'').slice(0,5), ospiti_num:p.ospiti_num||1,
-      totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', piattaforma:p.piattaforma||'diretto',
+      totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', commissione_pagamento:p.commissione_pagamento||'', piattaforma:p.piattaforma||'diretto',
       stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||'',
       recensione_voto:p.recensione_voto??'', recensione_testo:p.recensione_testo||''
     })
@@ -213,6 +213,7 @@ export default function App() {
         checkin_ora:prenForm.checkin_ora||null, checkout_ora:prenForm.checkout_ora||null,
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
         acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0,
+        commissione_pagamento:parseFloat(prenForm.commissione_pagamento)||0,
         piattaforma:prenForm.piattaforma, stato_pagamento:prenForm.stato_pagamento, note:prenForm.note,
         ospite_id:prenForm.ospite_id||null, ical_uid:prenForm.ical_uid||null,
         recensione_voto:prenForm.recensione_voto!==''?parseFloat(prenForm.recensione_voto):null,
@@ -486,6 +487,16 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {p.recensione_voto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {p.recensione_voto}/10</span>}
           {sospetta&&<span className="badge" style={{background:'rgba(192,57,43,.15)',color:'var(--rosso)'}}>⚠️ Verifica su {platL}</span>}
         </div>
+        {p.totale>0&&(() => {
+          const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni, p.commissione_pagamento)
+          return <div style={{marginTop:6,paddingTop:6,borderTop:'1px dashed var(--sabbia-scura)',fontSize:10,color:'var(--grigio)'}}>
+            <div style={{display:'flex',justifyContent:'space-between'}}><span>Lordo</span><strong style={{color:'var(--pietra)'}}>{fmtFull(s.lordo)}</strong></div>
+            {s.commissione>0&&<div style={{display:'flex',justifyContent:'space-between'}}><span>Commissioni{s.stimata?' (stimata)':''}</span><span>−{fmtFull(s.commissione)}</span></div>}
+            <div style={{display:'flex',justifyContent:'space-between'}}><span>Cedolare secca</span><span>−{fmtFull(s.cedolare)}</span></div>
+            {s.commissionePagamento>0&&<div style={{display:'flex',justifyContent:'space-between'}}><span>Commissione pagamenti</span><span>−{fmtFull(s.commissionePagamento)}</span></div>}
+            <div style={{display:'flex',justifyContent:'space-between',fontWeight:600,marginTop:2}}><span>Netto</span><span style={{color:'var(--verde)'}}>{fmtFull(s.netto)}</span></div>
+          </div>
+        })()}
         <div style={{display:'flex',gap:5,marginTop:8}}>
           <button className="btn bp bsm" onClick={e=>{e.stopPropagation();apriModificaPrenotazione(p)}}>✏️ Modifica</button>
           <button className="btn bs bsm" style={{flex:1}} onClick={e=>{e.stopPropagation();setSelectedPren(p);setModal('messaggi')}}>💬 Messaggi</button>
@@ -677,6 +688,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo</span><strong>{fmtFull(agg.lordo)}</strong></div>
       <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissioni piattaforme</span><span>−{fmtFull(agg.commissione)}</span></div>
       <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(agg.cedolare)}</span></div>
+      {agg.commissionePagamento>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px dashed var(--sabbia-scura)',color:'var(--grigio)'}}><span>Commissione pagamenti</span><span>−{fmtFull(agg.commissionePagamento)}</span></div>}
       <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0 0',fontSize:14,fontWeight:700}}><span>{titoloNetto}</span><strong style={{color:okTarget?'var(--verde)':'var(--rosso)'}}>{fmtFull(agg.netto)}</strong></div>
       {obiettivo!=null&&<div style={{fontSize:10,color:okTarget?'var(--verde)':'var(--rosso)',marginTop:8,textAlign:'center'}}>
         {okTarget?'✅':'⚠️'} Obiettivo {fmt(obiettivo)} ({fmt(parseFloat(db.impostazioni.utile_min_giorno||50))}/notte) — {okTarget?'raggiunto':'non raggiunto'}
@@ -1388,16 +1400,21 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             <div className="fg"><label className="fl">Commissione (€)</label><input type="number" className="fi" value={prenForm.commissione} onChange={e=>setPrenForm(f=>({...f,commissione:e.target.value}))} step="0.01"/></div>
           </div>
         )}
+        {prenForm.piattaforma!=='diretto' && (
+          <div className="fg"><label className="fl">Commissione pagamenti (€)</label><input type="number" className="fi" value={prenForm.commissione_pagamento} onChange={e=>setPrenForm(f=>({...f,commissione_pagamento:e.target.value}))} step="0.01" placeholder="Costo di transazione, se indicato a parte"/></div>
+        )}
         {prenForm.piattaforma!=='diretto' && prenForm.totale&&(() => {
           const notti = (prenForm.checkin&&prenForm.checkout&&prenForm.checkout>prenForm.checkin) ? diffDays(prenForm.checkout,prenForm.checkin) : 0
-          const {lordo, commissione, cedolare, netto, stimata} = scomponi(prenForm.piattaforma, prenForm.checkin||todayStr, prenForm.totale, prenForm.commissione, db.impostazioni)
+          const {lordo, commissione, cedolare, commissionePagamento, netto, stimata} = scomponi(prenForm.piattaforma, prenForm.checkin||todayStr, prenForm.totale, prenForm.commissione, db.impostazioni, prenForm.commissione_pagamento)
           const nettoNotte = notti>0 ? netto/notti : null
           const target = parseFloat(db.impostazioni.utile_min_giorno||50)
           const sottoSoglia = nettoNotte!==null && nettoNotte<target
           return <>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:8}}>
-              <div>{stimata?'Commissione stimata':'Commissione'}: <strong>{fmtFull(commissione)}</strong></div>
-              <div>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%): <strong>{fmtFull(cedolare)}</strong></div>
+            <div style={{fontSize:10,color:'var(--grigio)',marginTop:-6,marginBottom:8}}>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Lordo</span><strong style={{color:'var(--pietra)'}}>{fmtFull(lordo)}</strong></div>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px dashed var(--sabbia-scura)'}}><span>{stimata?'Commissioni piattaforma (stimata)':'Commissioni piattaforma'}</span><span>−{fmtFull(commissione)}</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px dashed var(--sabbia-scura)'}}><span>Cedolare secca ({parseFloat(db.impostazioni.taglio_diretto_pct||21)}%)</span><span>−{fmtFull(cedolare)}</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0'}}><span>Commissione pagamenti</span><span>−{fmtFull(commissionePagamento)}</span></div>
             </div>
             <div className="fg">
               <label className="fl">Netto (€){stimata?' — stimato':''}</label>
@@ -1405,7 +1422,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                 style={sottoSoglia?{borderColor:'var(--rosso)',color:'var(--rosso)'}:{color:'var(--verde)'}}
                 onChange={e=>{
                   const newNetto=parseFloat(e.target.value)||0
-                  setPrenForm(f=>({...f, commissione:(lordo-cedolare-newNetto).toFixed(2)}))
+                  setPrenForm(f=>({...f, commissione:(lordo-cedolare-commissionePagamento-newNetto).toFixed(2)}))
                 }}/>
               {nettoNotte!==null&&<div style={{fontSize:10,color:sottoSoglia?'var(--rosso)':'var(--grigio)',marginTop:4}}>
                 {fmtFull(nettoNotte)}/notte{sottoSoglia&&<> ⚠️ sotto i {fmt(target)}/notte</>}
@@ -1467,13 +1484,13 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             : <>
               {voci.map(p=>{
                 const notti = diffDays(p.checkout,p.checkin)
-                const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni)
+                const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni, p.commissione_pagamento)
                 return <div key={p.id} className="ir" style={{flexWrap:'wrap'}}>
                   <div className={`iico ${p.piattaforma==='airbnb'?'r':p.piattaforma==='booking'?'c':'v'}`}>🏠</div>
                   <div className="ibody">
                     <div className="iname">{p.nome}</div>
                     <div className="imeta">{fmtDate(p.checkin)} → {fmtDate(p.checkout)} · {notti}n · <span className={`badge ${piattaformaBadge(p.piattaforma)}`}>{piattaformaLabel(p.piattaforma)}</span></div>
-                    <div style={{fontSize:9,color:'var(--grigio)',marginTop:3}}>Comm. {fmtFull(s.commissione)} · Cedolare {fmtFull(s.cedolare)}</div>
+                    <div style={{fontSize:9,color:'var(--grigio)',marginTop:3}}>Comm. {fmtFull(s.commissione)} · Cedolare {fmtFull(s.cedolare)}{s.commissionePagamento>0&&<> · Comm. pag. {fmtFull(s.commissionePagamento)}</>}</div>
                   </div>
                   <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
                     <span className="iamt v">{fmtFull(p.totale)}</span>
