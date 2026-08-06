@@ -60,7 +60,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', commissione_pagamento:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
+  const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', commissione_pagamento:'', cedolare_manuale:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
   const emptyChiusura = { data_inizio:'', data_fine:'', note:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
@@ -192,9 +192,9 @@ export default function App() {
     setPrenForm({
       id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout,
       checkin_ora:(p.checkin_ora||'').slice(0,5), checkout_ora:(p.checkout_ora||'').slice(0,5), ospiti_num:p.ospiti_num||1,
-      totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', commissione_pagamento:p.commissione_pagamento||'', piattaforma:p.piattaforma||'diretto',
+      totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', commissione_pagamento:p.commissione_pagamento||'', cedolare_manuale:p.cedolare_manuale??'', piattaforma:p.piattaforma||'diretto',
       stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||'',
-      recensione_voto:p.recensione_voto??'', recensione_testo:p.recensione_testo||''
+      recensione_voto:p.recensione_voto!=null?(p.piattaforma==='airbnb'?p.recensione_voto/2:p.recensione_voto):'', recensione_testo:p.recensione_testo||''
     })
     setModal('modal-prenotazione')
   }
@@ -214,9 +214,10 @@ export default function App() {
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
         acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0,
         commissione_pagamento:parseFloat(prenForm.commissione_pagamento)||0,
+        cedolare_manuale:prenForm.cedolare_manuale!==''?parseFloat(prenForm.cedolare_manuale):null,
         piattaforma:prenForm.piattaforma, stato_pagamento:prenForm.stato_pagamento, note:prenForm.note,
         ospite_id:prenForm.ospite_id||null, ical_uid:prenForm.ical_uid||null,
-        recensione_voto:prenForm.recensione_voto!==''?parseFloat(prenForm.recensione_voto):null,
+        recensione_voto:prenForm.recensione_voto!==''?(prenForm.piattaforma==='airbnb'?parseFloat(prenForm.recensione_voto)*2:parseFloat(prenForm.recensione_voto)):null,
         recensione_testo:prenForm.recensione_testo||null}
       if (prenForm.id) await db.updatePrenotazione(prenForm.id, payload)
       else await db.addPrenotazione(payload)
@@ -488,7 +489,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {sospetta&&<span className="badge" style={{background:'rgba(192,57,43,.15)',color:'var(--rosso)'}}>⚠️ Verifica su {platL}</span>}
         </div>
         {p.totale>0&&(() => {
-          const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni, p.commissione_pagamento)
+          const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni, p.commissione_pagamento, p.cedolare_manuale)
           return <div style={{marginTop:6,paddingTop:6,borderTop:'1px dashed var(--sabbia-scura)',fontSize:10,color:'var(--grigio)'}}>
             <div style={{display:'flex',justifyContent:'space-between'}}><span>Lordo</span><strong style={{color:'var(--pietra)'}}>{fmtFull(s.lordo)}</strong></div>
             {s.commissione>0&&<div style={{display:'flex',justifyContent:'space-between'}}><span>Commissioni{s.stimata?' (stimata)':''}</span><span>−{fmtFull(s.commissione)}</span></div>}
@@ -702,8 +703,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   // Entrate del mese: transazioni manuali + prenotazioni (che nessuno registra
   // a mano in finanze) cosi' la lista non resta vuota/ferma.
   const prenItems2 = db.prenotazioni.filter(p=>p.checkin.slice(0,7)===finMk2)
-  const finE2 = finItems2.filter(f=>f.tipo==='entrata').reduce((s,f)=>s+Number(f.importo),0)
-    + prenItems2.reduce((s,p)=>s+Number(p.totale||0),0)
+  const finManualEntrata2 = finItems2.filter(f=>f.tipo==='entrata').reduce((s,f)=>s+Number(f.importo),0)
+  const aggFin2 = aggregaPrenotazioni(prenItems2, db.impostazioni)
+  const finE2 = finManualEntrata2 + aggFin2.lordo
+  const finNetto2 = finManualEntrata2 + aggFin2.netto
   const finU2 = finItems2.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
   const finS2 = finE2-finU2
 
@@ -889,7 +892,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               <button className="mbtn" onClick={()=>setFinMonth(new Date(finMonth.getFullYear(),finMonth.getMonth()+1,1))}>›</button>
             </div>
             <div className="kpi-strip k3">
-              <div className="kpi v"><div className="kv">{fmt(finE2)}</div><div className="kl">Entrate</div></div>
+              <div className="kpi v"><div className="kv">{fmt(finE2)}</div><div className="kl">Entrate lorde</div><div style={{fontSize:8,color:'var(--grigio)',marginTop:2}}>netto {fmt(finNetto2)}</div></div>
               <div className="kpi r"><div className="kv">{fmt(finU2)}</div><div className="kl">Uscite</div></div>
               <div className="kpi o"><div className="kv" style={{color:finS2>=0?'var(--verde)':'var(--rosso)'}}>{fmt(finS2)}</div><div className="kl">Saldo</div></div>
             </div>
@@ -990,9 +993,9 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             <div className="card">
               <div className="card-title"><span className="dot"/>Totale {annoCorrente}</div>
               {(() => {
-                const totE=reportMesi.reduce((s,m)=>s+m.e,0), totU=reportMesi.reduce((s,m)=>s+m.u,0)
+                const totE=reportMesi.reduce((s,m)=>s+m.e,0), totU=reportMesi.reduce((s,m)=>s+m.u,0), totNetto=reportMesi.reduce((s,m)=>s+m.netto,0)
                 return <div style={{display:'flex',justifyContent:'space-around',textAlign:'center'}}>
-                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:'var(--verde)'}}>{fmt(totE)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Entrate</div></div>
+                  <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:'var(--verde)'}}>{fmt(totE)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Entrate lorde</div><div style={{fontSize:9,color:'var(--grigio)',marginTop:1}}>netto {fmt(totNetto)}</div></div>
                   <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:'var(--rosso)'}}>{fmt(totU)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Uscite</div></div>
                   <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:22,fontWeight:600,color:totE-totU>=0?'var(--verde)':'var(--rosso)'}}>{fmt(totE-totU)}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.06em'}}>Saldo</div></div>
                 </div>
@@ -1394,7 +1397,17 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               </div>
             </div>
           </div>
-        ) : (
+        ) : null}
+        {prenForm.piattaforma==='diretto' && (
+          <div className="fg">
+            <label className="fl">Cedolare secca (€)</label>
+            <input type="number" className="fi" value={prenForm.cedolare_manuale}
+              onChange={e=>setPrenForm(f=>({...f,cedolare_manuale:e.target.value}))} step="0.01"
+              placeholder={prenForm.totale?`es. ${fmtFull(parseFloat(prenForm.totale)*parseFloat(db.impostazioni.taglio_diretto_pct||21)/100)} (21%)`:'0,00'}/>
+            <div style={{fontSize:9,color:'var(--grigio)',marginTop:3}}>Lasciala vuota se non la gestisci per prenotazione: per ora il netto corrisponde al lordo.</div>
+          </div>
+        )}
+        {prenForm.piattaforma!=='diretto' && (
           <div className="frow">
             <div className="fg"><label className="fl">Acconto (€)</label><input type="number" className="fi" value={prenForm.acconto} onChange={e=>setPrenForm(f=>({...f,acconto:e.target.value}))} step="0.01"/></div>
             <div className="fg"><label className="fl">Commissione (€)</label><input type="number" className="fi" value={prenForm.commissione} onChange={e=>setPrenForm(f=>({...f,commissione:e.target.value}))} step="0.01"/></div>
@@ -1436,7 +1449,11 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
         <div className="fg"><label className="fl">Note</label><input className="fi" value={prenForm.note} onChange={e=>setPrenForm(f=>({...f,note:e.target.value}))} placeholder="Telefono, richieste..."/></div>
         <div className="frow">
-          <div className="fg"><label className="fl">Recensione ricevuta (0-10)</label><input type="number" min="0" max="10" step="0.5" className="fi" value={prenForm.recensione_voto} onChange={e=>setPrenForm(f=>({...f,recensione_voto:e.target.value}))} placeholder="es. 10"/></div>
+          <div className="fg">
+            <label className="fl">Recensione ricevuta ({prenForm.piattaforma==='airbnb'?'0-5, scala Airbnb':'0-10'})</label>
+            <input type="number" min="0" max={prenForm.piattaforma==='airbnb'?5:10} step="0.5" className="fi" value={prenForm.recensione_voto} onChange={e=>setPrenForm(f=>({...f,recensione_voto:e.target.value}))} placeholder={prenForm.piattaforma==='airbnb'?'es. 5':'es. 10'}/>
+            {prenForm.piattaforma==='airbnb'&&<div style={{fontSize:9,color:'var(--grigio)',marginTop:3}}>Airbnb usa le stelle (max 5) — la converto automaticamente su scala 10 per la media con Booking</div>}
+          </div>
           <div className="fg"><label className="fl">Commento recensione</label><input className="fi" value={prenForm.recensione_testo} onChange={e=>setPrenForm(f=>({...f,recensione_testo:e.target.value}))} placeholder="opz."/></div>
         </div>
         <div className="fg">
@@ -1484,7 +1501,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             : <>
               {voci.map(p=>{
                 const notti = diffDays(p.checkout,p.checkin)
-                const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni, p.commissione_pagamento)
+                const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, db.impostazioni, p.commissione_pagamento, p.cedolare_manuale)
                 return <div key={p.id} className="ir" style={{flexWrap:'wrap'}}>
                   <div className={`iico ${p.piattaforma==='airbnb'?'r':p.piattaforma==='booking'?'c':'v'}`}>🏠</div>
                   <div className="ibody">

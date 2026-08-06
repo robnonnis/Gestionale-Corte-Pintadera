@@ -160,12 +160,15 @@ export function prezzoMinimo(piattaforma, dataRif, impostazioni) {
 // commissione pagamenti (costo di transazione/incasso, distinto dalla
 // commissione della piattaforma — es. Booking le mostra separate in fattura)
 // + netto finale. La cedolare (taglio_diretto_pct, es. 21%) si applica
-// sempre sul lordo a prescindere dalla piattaforma; la commissione OTA e'
-// il resto del taglio combinato (o quella inserita a mano, se presente).
-export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impostazioni, commissionePagamento) {
+// sempre sul lordo per Airbnb/Booking; per le prenotazioni dirette invece
+// resta a 0 finche' non viene inserita a mano (cedolareManuale) — l'host la
+// gestisce diversamente per gli incassi diretti, non vogliamo presumerla.
+export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impostazioni, commissionePagamento, cedolareManuale) {
   const l = Number(lordo) || 0
   const cedolarePct = parseFloat(impostazioni?.taglio_diretto_pct ?? '21') || 0
-  const cedolare = l * cedolarePct / 100
+  const cedolare = piattaforma === 'diretto'
+    ? (cedolareManuale!=null && cedolareManuale!=='' ? Number(cedolareManuale)||0 : 0)
+    : l * cedolarePct / 100
   const stimata = !(Number(commissioneManuale) > 0)
   let commissione
   if (!stimata) {
@@ -203,7 +206,7 @@ export function occupancyRate(dayMap, year, month) {
 export function aggregaPrenotazioni(prenotazioni, impostazioni) {
   let lordo=0, commissione=0, cedolare=0, commissionePagamento=0, netto=0, notti=0
   prenotazioni.forEach(p => {
-    const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, impostazioni, p.commissione_pagamento)
+    const s = scomponi(p.piattaforma, p.checkin, p.totale, p.commissione, impostazioni, p.commissione_pagamento, p.cedolare_manuale)
     lordo += s.lordo; commissione += s.commissione; cedolare += s.cedolare
     commissionePagamento += s.commissionePagamento; netto += s.netto
     notti += diffDays(p.checkout, p.checkin)

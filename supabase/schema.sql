@@ -40,6 +40,7 @@ create table if not exists prenotazioni (
   acconto         numeric(10,2) default 0,
   commissione     numeric(10,2) default 0,  -- commissione piattaforma
   commissione_pagamento numeric(10,2) default 0,  -- costo di transazione/incasso, distinto dalla commissione piattaforma
+  cedolare_manuale numeric(10,2),  -- prenotazioni dirette: cedolare a 0 finche' non inserita a mano (nullable apposta)
   netto           numeric(10,2) generated always as (totale - commissione) stored,
   piattaforma     text default 'diretto',
   stato           text default 'confermata',  -- confermata | checkin | checkout | cancellata
