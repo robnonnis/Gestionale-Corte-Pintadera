@@ -35,6 +35,7 @@ create table if not exists prenotazioni (
   checkout        date not null,
   checkin_ora     time,           -- orario comunicato dall'ospite (opzionale)
   checkout_ora    time,
+  telefono        text,           -- numero cellulare ospite, per contatto/WhatsApp diretto
   ospiti_num      integer default 1,
   totale          numeric(10,2) default 0,
   acconto         numeric(10,2) default 0,

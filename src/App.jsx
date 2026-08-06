@@ -60,7 +60,7 @@ export default function App() {
 
   // Form states
   const emptyFin = { tipo:'entrata', descrizione:'', importo:'', data:today(), categoria:'prenotazione', piattaforma:'diretto', note:'' }
-  const emptyPren = { nome:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', commissione_pagamento:'', cedolare_manuale:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
+  const emptyPren = { nome:'', telefono:'', checkin:'', checkout:'', checkin_ora:'', checkout_ora:'', ospiti_num:2, totale:'', acconto:'', commissione:'', commissione_pagamento:'', cedolare_manuale:'', piattaforma:'diretto', stato_pagamento:'da_saldare', note:'', ospite_id:'', ical_uid:'', recensione_voto:'', recensione_testo:'' }
   const emptyChiusura = { data_inizio:'', data_fine:'', note:'' }
   const emptyScad = { titolo:'', data:'', importo:'', categoria:'bolletta', ricorrenza:'una-tantum', note:'' }
   const emptyBoll = { tipo:'luce', numero:'', data:today(), scadenza:'', periodo:'', importo:'', fornitore:'', stato:'da-pagare', data_pagamento:'', note:'' }
@@ -190,7 +190,7 @@ export default function App() {
   const toggleMonth = mk => setOpenMonths(s => { const n = new Set(s); n.has(mk) ? n.delete(mk) : n.add(mk); return n })
   const apriModificaPrenotazione = (p) => {
     setPrenForm({
-      id:p.id, nome:p.nome, checkin:p.checkin, checkout:p.checkout,
+      id:p.id, nome:p.nome, telefono:p.telefono||'', checkin:p.checkin, checkout:p.checkout,
       checkin_ora:(p.checkin_ora||'').slice(0,5), checkout_ora:(p.checkout_ora||'').slice(0,5), ospiti_num:p.ospiti_num||1,
       totale:p.totale||'', acconto:p.acconto||'', commissione:p.commissione||'', commissione_pagamento:p.commissione_pagamento||'', cedolare_manuale:p.cedolare_manuale??'', piattaforma:p.piattaforma||'diretto',
       stato_pagamento:p.stato_pagamento||'da_saldare', note:p.note||'', ospite_id:p.ospite_id||'', ical_uid:p.ical_uid||'',
@@ -209,7 +209,7 @@ export default function App() {
     if (!prenForm.nome||!prenForm.checkin||!prenForm.checkout) { toast.show('Nome e date obbligatori'); return }
     if (prenForm.checkout<=prenForm.checkin) { toast.show('Check-out deve essere dopo check-in'); return }
     try {
-      const payload = {nome:prenForm.nome, checkin:prenForm.checkin, checkout:prenForm.checkout,
+      const payload = {nome:prenForm.nome, telefono:prenForm.telefono||null, checkin:prenForm.checkin, checkout:prenForm.checkout,
         checkin_ora:prenForm.checkin_ora||null, checkout_ora:prenForm.checkout_ora||null,
         ospiti_num:parseInt(prenForm.ospiti_num)||1, totale:parseFloat(prenForm.totale)||0,
         acconto:parseFloat(prenForm.acconto)||0, commissione:parseFloat(prenForm.commissione)||0,
@@ -481,6 +481,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
         </div>
         <div style={{fontSize:11,color:'var(--grigio)',marginTop:3}}>📅 {fmtDate(p.checkin)} → {fmtDate(p.checkout)} · {nights}n · {p.ospiti_num} ospiti</div>
         {(p.checkin_ora||p.checkout_ora)&&<div style={{fontSize:11,color:'var(--grigio)',marginTop:2}}>🕒 {p.checkin_ora?p.checkin_ora.slice(0,5):'—'} → {p.checkout_ora?p.checkout_ora.slice(0,5):'—'}</div>}
+        {p.telefono&&<a href={`tel:${p.telefono}`} onClick={e=>e.stopPropagation()} style={{fontSize:11,color:'var(--grigio)',marginTop:2,display:'block',textDecoration:'none'}}>📱 {p.telefono}</a>}
         <div style={{display:'flex',gap:5,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
           <span className={`badge ${platB}`}>{platL}</span>
           {p.totale>0&&<span style={{fontFamily:'Cormorant Garamond,serif',fontSize:14,fontWeight:600,color:'var(--verde)'}}>{fmtFull(p.totale)}</span>}
@@ -1362,6 +1363,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       {/* Prenotazione */}
       <Modal open={modal==='modal-prenotazione'} onClose={()=>setModal(null)} title={prenForm.id?'Modifica prenotazione':prenForm.ical_uid?'Completa prenotazione (da iCal)':'Nuova prenotazione'}>
         <div className="fg"><label className="fl">Nome ospite</label><input className="fi" value={prenForm.nome} onChange={e=>setPrenForm(f=>({...f,nome:e.target.value}))} placeholder="Nome Cognome"/></div>
+        <div className="fg"><label className="fl">Numero cellulare</label><input type="tel" className="fi" value={prenForm.telefono} onChange={e=>setPrenForm(f=>({...f,telefono:e.target.value}))} placeholder="+39 333 1234567"/></div>
         <div className="frow">
           <div className="fg"><label className="fl">Check-in</label><input type="date" className="fi" value={prenForm.checkin} onChange={e=>setPrenForm(f=>({...f,checkin:e.target.value}))}/></div>
           <div className="fg"><label className="fl">Check-out</label><input type="date" className="fi" value={prenForm.checkout} onChange={e=>setPrenForm(f=>({...f,checkout:e.target.value}))}/></div>
@@ -1683,17 +1685,20 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             <div style={{background:'var(--sabbia)',borderRadius:'var(--rsm)',padding:'8px 11px',marginBottom:12}}>
               <div style={{fontWeight:600,fontSize:12}}>{selectedPren.nome}</div>
               <div style={{fontSize:10,color:'var(--grigio)'}}>{fmtDate(selectedPren.checkin)} → {fmtDate(selectedPren.checkout)} · {diffDays(selectedPren.checkout,selectedPren.checkin)} notti</div>
+              {selectedPren.telefono&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>📱 {selectedPren.telefono}</div>}
             </div>
-            {Object.entries(msgs).map(([k,m])=>(
-              <div key={k} style={{marginBottom:13}}>
+            {!selectedPren.telefono&&<div style={{fontSize:10,color:'var(--grigio)',marginBottom:10}}>Nessun numero salvato — WhatsApp aprira' la scelta del contatto invece della chat diretta.</div>}
+            {Object.entries(msgs).map(([k,m])=>{
+              const telPulito = selectedPren.telefono ? selectedPren.telefono.replace(/[^\d+]/g,'').replace(/^0+/,'').replace('+','') : ''
+              return <div key={k} style={{marginBottom:13}}>
                 <div style={{fontSize:12,fontWeight:600,marginBottom:6}}>{m.t}</div>
                 <div className="msgbox">{m.msg}</div>
                 <div style={{display:'flex',gap:6,marginTop:6}}>
                   <button className="btn bs bsm" style={{flex:1}} onClick={()=>{navigator.clipboard.writeText(m.msg);toast.show('📋 Copiato!')}}>📋 Copia</button>
-                  <button className="btn bs bsm" style={{flex:1}} onClick={()=>window.open('https://wa.me/?text='+encodeURIComponent(m.msg),'_blank')}>💚 WhatsApp</button>
+                  <button className="btn bs bsm" style={{flex:1}} onClick={()=>window.open(`https://wa.me/${telPulito}?text=`+encodeURIComponent(m.msg),'_blank')}>💚 WhatsApp</button>
                 </div>
               </div>
-            ))}
+            })}
           </>
         })()}
       </Modal>
