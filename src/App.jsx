@@ -98,7 +98,9 @@ export default function App() {
   const aggMeseHome = aggregaPrenotazioni(prenMeseHome, db.impostazioni)
   const entrMese = aggMeseHome.lordo
   const nettoMese = aggMeseHome.netto
+  const bollMeseHome = db.bollette.filter(b=>b.stato==='pagata' && b.data_pagamento && b.data_pagamento.slice(0,7)===mk)
   const uscMese  = finMese.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
+    + bollMeseHome.reduce((s,b)=>s+Number(b.importo),0)
   const todayStr = today()
   const prenFuture = db.prenotazioni.filter(p=>p.checkout>=todayStr).sort((a,b)=>a.checkin.localeCompare(b.checkin))
   // Prenotazioni + eventi iCal non abbinati, in un unico ordine cronologico
@@ -385,7 +387,15 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
       benvenuto:   { t:'👋 Benvenuto', msg:`Benvenuto/a a Corte Pintadera, ${nome}! 🏡\n\nSe manca qualcosa faccelo sapere subito.\n\n🌡 Climatizzatori: telecomando sul tavolo\n☕ Caffè e kit benvenuto in cucina\n🗑 Raccolta differenziata: istruzioni sulla porta\n🕓 Silenzio dalle 23:30 alle 08:00\n\nBuona permanenza! 😊\nRoberta e Alessandro` },
       checkout:    { t:'🧳 Check-out', msg:`Ciao ${nome}! Domani è il giorno del check-out.\n\n🕘 Entro le ore 09:00\n\nPrima di partire:\n🔑 Chiavi sul tavolo soggiorno\n🌡 Spegni i climatizzatori\n💡 Spegni le luci\n🚪 Chiudi la veranda\n\nGrazie e a presto! 🏡\nRoberta e Alessandro` },
       recensione:  { t:'⭐ Recensione', msg:`Ciao ${nome}! 😊\n\nSperiamo che il soggiorno a Corte Pintadera sia stato piacevole.\n\nUna tua recensione su ${platL} ci aiuterebbe tantissimo! 🙏\n\nGrazie di cuore!\nRoberta e Alessandro 🏡` },
+      invito:      { t:'🎁 Invito con offerta', msg:`Ciao ${nome}! 😊\n\nÈ passato un po' di tempo dal tuo soggiorno a Corte Pintadera e ci farebbe piacere riaverti con noi! 🏡\n\nPer un tuo prossimo soggiorno ti riserviamo uno sconto speciale — scrivici pure per i dettagli.\n\nA presto!\nRoberta e Alessandro 🏡` },
     }
+  }
+  // Messaggio di invito standalone (per l'anagrafica ospiti, dove non c'e'
+  // una prenotazione specifica di riferimento come per MSGS).
+  const msgInvito = nomeCompleto => `Ciao ${nomeCompleto.split(' ')[0]}! 😊\n\nÈ passato un po' di tempo dal tuo soggiorno a Corte Pintadera e ci farebbe piacere riaverti con noi! 🏡\n\nPer un tuo prossimo soggiorno ti riserviamo uno sconto speciale — scrivici pure per i dettagli.\n\nA presto!\nRoberta e Alessandro 🏡`
+  const waLink = (telefono, msg) => {
+    const pulito = telefono ? telefono.replace(/[^\d+]/g,'').replace(/^0+/,'').replace('+','') : ''
+    return `https://wa.me/${pulito}?text=`+encodeURIComponent(msg)
   }
 
   // ── IMPORT ICAL ───────────────────────────────────────────────────────
@@ -708,7 +718,11 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
   const aggFin2 = aggregaPrenotazioni(prenItems2, db.impostazioni)
   const finE2 = finManualEntrata2 + aggFin2.lordo
   const finNetto2 = finManualEntrata2 + aggFin2.netto
+  // Bollette pagate nel mese: come le prenotazioni per le entrate, nessuno le
+  // ricopia a mano in finanze, quindi il totale uscite restava fermo.
+  const bollItems2 = db.bollette.filter(b=>b.stato==='pagata' && b.data_pagamento && b.data_pagamento.slice(0,7)===finMk2)
   const finU2 = finItems2.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0)
+    + bollItems2.reduce((s,b)=>s+Number(b.importo),0)
   const finS2 = finE2-finU2
 
   // ── Report annuale ───────────────────────────────────────────────────
@@ -717,9 +731,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
     const mk3=annoCorrente+'-'+String(i+1).padStart(2,'0')
     const mf=db.finanze.filter(f=>f.data.slice(0,7)===mk3)
     const mp=db.prenotazioni.filter(p=>p.checkin.slice(0,7)===mk3)
+    const mb=db.bollette.filter(b=>b.stato==='pagata' && b.data_pagamento && b.data_pagamento.slice(0,7)===mk3)
     const agg=aggregaPrenotazioni(mp, db.impostazioni)
     return { nome:nome.slice(0,3), e:agg.lordo, commissione:agg.commissione, cedolare:agg.cedolare, netto:agg.netto, prenotazioni:agg.count, notti:agg.notti,
-      u:mf.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0) }
+      u:mf.filter(f=>f.tipo==='uscita').reduce((s,f)=>s+Number(f.importo),0) + mb.reduce((s,b)=>s+Number(b.importo),0) }
   })
   const maxR = Math.max(...reportMesi.map(m=>Math.max(m.e,m.u)),1)
 
@@ -848,10 +863,30 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {(() => {
             const recensite = db.prenotazioni.filter(p=>p.recensione_voto!=null)
             if (recensite.length===0) return null
-            const media = recensite.reduce((s,p)=>s+Number(p.recensione_voto),0)/recensite.length
-            return <div className="card" style={{marginBottom:9,display:'flex',justifyContent:'space-around',textAlign:'center'}}>
-              <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>⭐ {media.toFixed(1)}/10</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Media recensioni</div></div>
-              <div><div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>{recensite.length}</div><div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>Recensioni</div></div>
+            // Il massimo cambia per piattaforma (Airbnb 5 stelle, Booking/Diretto 10):
+            // una media unica mischiava le scale e dava numeri fuorvianti, quindi
+            // qui si separa per piattaforma, mostrando ognuna nella sua scala nativa.
+            const perPiattaforma = {}
+            recensite.forEach(p=>{
+              const k = p.piattaforma||'diretto'
+              ;(perPiattaforma[k] = perPiattaforma[k]||[]).push(Number(p.recensione_voto))
+            })
+            const LABEL = {airbnb:'Airbnb', booking:'Booking', diretto:'Diretto', altro:'Altro'}
+            const chiavi = ['airbnb','booking','diretto','altro'].filter(k=>perPiattaforma[k])
+            return <div className="card" style={{marginBottom:9}}>
+              <div className="card-title" style={{marginBottom:8}}><span className="dot"/>Media recensioni</div>
+              <div style={{display:'flex',justifyContent:'space-around',textAlign:'center',flexWrap:'wrap',gap:10}}>
+                {chiavi.map(k=>{
+                  const voti = perPiattaforma[k]
+                  const isAirbnb = k==='airbnb'
+                  const mediaGrezza = voti.reduce((s,v)=>s+v,0)/voti.length
+                  const mediaMostrata = isAirbnb ? mediaGrezza/2 : mediaGrezza
+                  return <div key={k}>
+                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:18,fontWeight:600}}>⭐ {mediaMostrata.toFixed(1)}/{isAirbnb?5:10}</div>
+                    <div style={{fontSize:9,color:'var(--grigio)',textTransform:'uppercase',letterSpacing:'.05em'}}>{LABEL[k]||k} · {voti.length}</div>
+                  </div>
+                })}
+              </div>
             </div>
           })()}
 
@@ -1261,7 +1296,36 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
             const nazBreak = {}
             db.ospiti.forEach(o=>{ const n=o.nazionalita||'—'; nazBreak[n]=(nazBreak[n]||0)+1 })
             const nazSorted = Object.entries(nazBreak).sort((a,b)=>b[1]-a[1])
+            // Rubrica per contattare gli ex ospiti (nome/telefono/recensione presi
+            // direttamente dalle prenotazioni): l'anagrafica formale qui sotto resta
+            // vuota finche' non colleghi a mano ogni prenotazione a un ospite, mentre
+            // qui i dati ci sono gia' per tutti, utile per gli inviti con offerta.
+            const rubrica = (() => {
+              const map = {}
+              db.prenotazioni.forEach(p => {
+                const key = p.nome.trim().toLowerCase()
+                if (!key) return
+                if (!map[key]) map[key] = { nome:p.nome.trim(), telefono:null, voto:null, testo:null, ultimoCheckin:p.checkin, piattaforma:p.piattaforma }
+                const g = map[key]
+                if (p.telefono) g.telefono = p.telefono
+                if (p.recensione_voto!=null) { g.voto = Number(p.recensione_voto); g.testo = p.recensione_testo }
+                if (p.checkin >= g.ultimoCheckin) { g.ultimoCheckin = p.checkin; g.piattaforma = p.piattaforma }
+              })
+              return Object.values(map).sort((a,b) => (b.voto??-1) - (a.voto??-1))
+            })()
             return <>
+              {rubrica.length>0&&<div className="card" style={{marginBottom:9}}>
+                <div className="card-title"><span className="dot"/>Rubrica ospiti — invito con offerta</div>
+                {rubrica.map(g=>(
+                  <div key={g.nome} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid var(--sabbia-scura)'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600}}>{g.nome} {g.voto!=null&&<span style={{fontWeight:400,color:'#7a5c10'}}>⭐ {g.voto}/10</span>}</div>
+                      <div style={{fontSize:10,color:'var(--grigio)'}}>{g.telefono?<a href={`tel:${g.telefono}`} style={{color:'var(--grigio)'}}>📱 {g.telefono}</a>:'Nessun numero salvato'} · {fmtDate(g.ultimoCheckin)}</div>
+                    </div>
+                    <button className="btn bs bsm" disabled={!g.telefono} style={!g.telefono?{opacity:.4}:{}} onClick={()=>g.telefono&&window.open(waLink(g.telefono, msgInvito(g.nome)),'_blank')}>🎁 Invita</button>
+                  </div>
+                ))}
+              </div>}
               <div className="kpi-strip k3">
                 <div className="kpi c"><div className="kv">{db.ospiti.length}</div><div className="kl">Ospiti</div></div>
                 <div className="kpi v"><div className="kv">{fmt(incassoOspiti)}</div><div className="kl">Incasso collegato</div></div>
@@ -1277,6 +1341,10 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               {db.ospiti.map(o=>{
                 const prenOspite = db.prenotazioni.filter(p=>p.ospite_id===o.id).sort((a,b)=>b.checkin.localeCompare(a.checkin))
                 const totOspite = prenOspite.reduce((s,p)=>s+Number(p.totale||0),0)
+                const recensiti = prenOspite.filter(p=>p.recensione_voto!=null)
+                const mediaVoto = recensiti.length ? recensiti.reduce((s,p)=>s+Number(p.recensione_voto),0)/recensiti.length : null
+                const ultimaRecensioneTesto = prenOspite.find(p=>p.recensione_testo)?.recensione_testo
+                const telefonoOspite = o.telefono || prenOspite.find(p=>p.telefono)?.telefono || ''
                 return <div key={o.id} className="card" style={{marginBottom:8}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                     <div style={{flex:1}}>
@@ -1284,10 +1352,12 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                       <div style={{display:'flex',gap:5,marginTop:4,flexWrap:'wrap'}}>
                         <span className="pill">{o.nazionalita||'—'}</span>
                         {o.tipo_documento&&<span className="pill">{o.tipo_documento}{o.numero_documento?' '+o.numero_documento:''}</span>}
+                        {mediaVoto!=null&&<span className="badge" style={{background:'rgba(201,168,76,.2)',color:'#7a5c10'}}>⭐ {mediaVoto.toFixed(1)}/10</span>}
                       </div>
-                      {(o.email||o.telefono)&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:3}}>{o.email}{o.email&&o.telefono?' · ':''}{o.telefono}</div>}
+                      {(o.email||telefonoOspite)&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:3}}>{o.email}{o.email&&telefonoOspite?' · ':''}{telefonoOspite&&<a href={`tel:${telefonoOspite}`} style={{color:'var(--grigio)'}}>📱 {telefonoOspite}</a>}</div>}
                       {o.data_nascita&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>🎂 {fmtDate(o.data_nascita)}{o.luogo_nascita?' · '+o.luogo_nascita:''}</div>}
                       {o.note&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>📝 {o.note}</div>}
+                      {ultimaRecensioneTesto&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2,fontStyle:'italic'}}>⭐ "{ultimaRecensioneTesto}"</div>}
                     </div>
                     <button className="del" onClick={()=>db.deleteOspite(o.id)}>🗑</button>
                   </div>
@@ -1300,6 +1370,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
                     ))}
                     <div style={{fontSize:10,color:'var(--grigio)',marginTop:4,textAlign:'right'}}>Totale: <strong>{fmtFull(totOspite)}</strong></div>
                   </div>}
+                  <button className="btn bs bsm bfull" style={{marginTop:9}} onClick={()=>window.open(waLink(telefonoOspite, msgInvito(o.nome+' '+(o.cognome||''))),'_blank')}>🎁 Invita con offerta</button>
                 </div>
               })}
               {db.ospiti.length===0&&<div className="empty" style={{background:'var(--bianco)',borderRadius:'var(--r)',padding:20}}><div className="emi">👤</div><p>Nessun ospite registrato</p></div>}
@@ -1688,17 +1759,16 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
               {selectedPren.telefono&&<div style={{fontSize:10,color:'var(--grigio)',marginTop:2}}>📱 {selectedPren.telefono}</div>}
             </div>
             {!selectedPren.telefono&&<div style={{fontSize:10,color:'var(--grigio)',marginBottom:10}}>Nessun numero salvato — WhatsApp aprira' la scelta del contatto invece della chat diretta.</div>}
-            {Object.entries(msgs).map(([k,m])=>{
-              const telPulito = selectedPren.telefono ? selectedPren.telefono.replace(/[^\d+]/g,'').replace(/^0+/,'').replace('+','') : ''
-              return <div key={k} style={{marginBottom:13}}>
+            {Object.entries(msgs).map(([k,m])=>(
+              <div key={k} style={{marginBottom:13}}>
                 <div style={{fontSize:12,fontWeight:600,marginBottom:6}}>{m.t}</div>
                 <div className="msgbox">{m.msg}</div>
                 <div style={{display:'flex',gap:6,marginTop:6}}>
                   <button className="btn bs bsm" style={{flex:1}} onClick={()=>{navigator.clipboard.writeText(m.msg);toast.show('📋 Copiato!')}}>📋 Copia</button>
-                  <button className="btn bs bsm" style={{flex:1}} onClick={()=>window.open(`https://wa.me/${telPulito}?text=`+encodeURIComponent(m.msg),'_blank')}>💚 WhatsApp</button>
+                  <button className="btn bs bsm" style={{flex:1}} onClick={()=>window.open(waLink(selectedPren.telefono,m.msg),'_blank')}>💚 WhatsApp</button>
                 </div>
               </div>
-            })}
+            ))}
           </>
         })()}
       </Modal>
