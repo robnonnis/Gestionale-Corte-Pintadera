@@ -149,8 +149,22 @@ export function taglioPiattaforma(piattaforma, dataRif, impostazioni) {
   return pct('taglio_diretto_pct')
 }
 
+// La commissione host di Airbnb (3% o 15,5% a seconda di quando e' stata
+// fatta la prenotazione, non della data del soggiorno) ha sempre il 22% di
+// IVA sopra — confermato da due fatture reali (Chris: 3%+IVA, Tim: 15,5%+IVA).
+// Booking invece la mostra gia' scorporata in fattura come voce a parte
+// (commissione_pagamento), quindi qui non va toccata.
+const IVA_COMMISSIONE_AIRBNB = 1.22
+function otaPctEffettivo(piattaforma, dataRif, impostazioni, cedolarePct) {
+  const taglioTotale = taglioPiattaforma(piattaforma, dataRif, impostazioni)
+  const otaPct = Math.max(taglioTotale - cedolarePct, 0)
+  return piattaforma === 'airbnb' ? otaPct * IVA_COMMISSIONE_AIRBNB : otaPct
+}
+
 export function prezzoMinimo(piattaforma, dataRif, impostazioni) {
-  const taglio = taglioPiattaforma(piattaforma, dataRif, impostazioni)
+  const cedolarePct = parseFloat(impostazioni?.taglio_diretto_pct ?? '21') || 0
+  const otaPct = otaPctEffettivo(piattaforma, dataRif, impostazioni, cedolarePct)
+  const taglio = cedolarePct + otaPct
   const utileMin = parseFloat(impostazioni?.utile_min_giorno ?? '50') || 0
   if (taglio >= 100) return Infinity
   return utileMin / (1 - taglio/100)
@@ -174,8 +188,7 @@ export function scomponi(piattaforma, dataRif, lordo, commissioneManuale, impost
   if (!stimata) {
     commissione = Number(commissioneManuale) || 0
   } else {
-    const taglioTotale = taglioPiattaforma(piattaforma, dataRif, impostazioni)
-    const otaPct = Math.max(taglioTotale - cedolarePct, 0)
+    const otaPct = otaPctEffettivo(piattaforma, dataRif, impostazioni, cedolarePct)
     commissione = l * otaPct / 100
   }
   const commissionePag = Number(commissionePagamento) || 0

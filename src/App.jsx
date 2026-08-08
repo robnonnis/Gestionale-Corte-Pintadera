@@ -1075,7 +1075,7 @@ Sii diretto, concreto, usa i dati reali. Rispondi in italiano, formato leggibile
           {prezziTab==='tariffe'&&<>
             <div className="infobox">
               <strong>💡 Obiettivo: almeno {fmt(parseFloat(db.impostazioni.utile_min_giorno||50))} di utile netto a notte</strong>
-              Sotto ogni prezzo trovi il minimo che serve per garantirlo, dopo commissione della piattaforma e cedolare secca (21%, sempre sul prezzo intero). <strong>Diretto</strong>: nessuna commissione, solo cedolare. <strong>Booking</strong>: commissione 18%. <strong>Airbnb</strong>: 3% fino al {fmtDate(db.impostazioni.data_cambio_airbnb||'2026-10-13')}, poi <strong>15,5%</strong> (nuova fee unica a carico host, sostituisce il vecchio 3%+service fee ospite).
+              Sotto ogni prezzo trovi il minimo che serve per garantirlo, dopo commissione della piattaforma e cedolare secca (21%, sempre sul prezzo intero). <strong>Diretto</strong>: nessuna commissione, solo cedolare. <strong>Booking</strong>: commissione 18%. <strong>Airbnb</strong>: 3%+IVA o <strong>15,5%+IVA</strong> a seconda di quando l'ospite ha prenotato (non della data del soggiorno — due fatture reali lo confermano) — qui sotto le stime usano sempre l'aliquota nuova, la piu' prudente.
             </div>
             {db.prezzi.filter(p=>p.attivo).map(p=>{
               const pc=PERIODO_COLOR[p.tipo_periodo]||PERIODO_COLOR.bassa
